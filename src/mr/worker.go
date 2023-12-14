@@ -34,16 +34,32 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+// debug helper function
+func debug(message string) {
+	// get current process id
+	pid := os.Getpid()
+
+	// format the log message
+	logMessage := fmt.Sprintf("[%d] %s", pid, message)
+
+	logFile, _ := os.Open("out.log")
+	defer logFile.Close()
+	// log.SetOutput(logFile)
+
+	// print to stdout
+	fmt.Print(logMessage)
+}
+
 // main/mrworker.go calls this function.
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-	CallExample()
-	println("CallExample success")
+	debug(fmt.Sprintf("begin worker"))
 	for {
 		// ask for job
 		jobInfo, ok := AskForJob()
+		debug(fmt.Sprintf("jobinfo: %+v\n", jobInfo))
 		if !ok {
 			break
 		}
@@ -102,6 +118,7 @@ func Worker(mapf func(string, string) []KeyValue,
 				}
 				tempFile.Close()
 			}
+			debug(fmt.Sprintf("finish map job\n"))
 		} else { // reduce job
 			intermediateKV := make([]KeyValue, 0)
 			for id := 0; id < jobInfo.FileCount; id++ {
@@ -157,10 +174,17 @@ func Worker(mapf func(string, string) []KeyValue,
 				log.Fatalf("create reduce output file %s fail, error: %v", outFileName, err)
 			}
 			tempFile.Close()
+
+			debug(fmt.Sprintf("finish reduce job\n"))
 		}
 
 		// send ack to the coordinator
 		SendAck(jobInfo.FileName)
+		if jobInfo.JobType == Reduce {
+			debug(fmt.Sprintf("send reduce ack info: %+v\n", jobInfo.FileName))
+		} else {
+			debug(fmt.Sprintf("send map ack info: %+v\n", jobInfo.FileName))
+		}
 	}
 }
 

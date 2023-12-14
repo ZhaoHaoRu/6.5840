@@ -52,7 +52,10 @@ func (c *Coordinator) convertStage() {
 	// the intermediate file name format is `mr-X-Y`, where X is the Map task number, and Y is the reduce task number.
 	c.jobStatusMap = make(map[string]JobStatus)
 	for i := 0; i < c.reduceCount; i++ {
-		c.jobStatusMap["mr-X-"+strconv.Itoa(i)] = JobStatus{}
+		c.jobStatusMap["mr-X-"+strconv.Itoa(i)] = JobStatus{
+			timeoutStamp: time.Unix(0, 0),
+			jobId:        -1,
+		}
 	}
 	c.assignedJobs = 0
 	c.totalJobs = c.reduceCount
@@ -92,11 +95,15 @@ func (c *Coordinator) ServeMapReduce(args *RequestWorkerArgs, reply *RequestCoor
 			return nil
 		}
 
+		if len(c.jobStatusMap) == 0 {
+			log.Fatalf("job map shouldn't be empty!\n")
+		}
+
 		// check whether there is a job timeout, for this lab, use ten sec
 		currentTime := time.Now()
 		for jobFile, jobStatus := range c.jobStatusMap {
 			// assign the timeout job to the current worker
-			if jobStatus.jobId != 0 && currentTime.After(jobStatus.timeoutStamp) {
+			if !jobStatus.timeoutStamp.IsZero() && currentTime.After(jobStatus.timeoutStamp) {
 				c.jobStatusMap[jobFile] = JobStatus{
 					timeoutStamp: currentTime.Add(10 * time.Second),
 					jobId:        jobStatus.jobId,
@@ -183,7 +190,10 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.files = files
 	c.jobStatusMap = make(map[string]JobStatus)
 	for _, filename := range files {
-		c.jobStatusMap[filename] = JobStatus{}
+		c.jobStatusMap[filename] = JobStatus{
+			timeoutStamp: time.Unix(0, 0),
+			jobId:        -1,
+		}
 	}
 
 	c.reduceCount = nReduce
