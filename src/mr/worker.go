@@ -55,11 +55,11 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-	debug(fmt.Sprintf("begin worker"))
+	// debug(fmt.Sprintf("begin worker"))
 	for {
 		// ask for job
 		jobInfo, ok := AskForJob()
-		debug(fmt.Sprintf("jobinfo: %+v\n", jobInfo))
+		// debug(fmt.Sprintf("jobinfo: %+v\n", jobInfo))
 		if !ok {
 			break
 		}
@@ -118,7 +118,7 @@ func Worker(mapf func(string, string) []KeyValue,
 				}
 				tempFile.Close()
 			}
-			debug(fmt.Sprintf("finish map job\n"))
+			// debug(fmt.Sprintf("finish map job\n"))
 		} else { // reduce job
 			intermediateKV := make([]KeyValue, 0)
 			for id := 0; id < jobInfo.FileCount; id++ {
@@ -175,16 +175,16 @@ func Worker(mapf func(string, string) []KeyValue,
 			}
 			tempFile.Close()
 
-			debug(fmt.Sprintf("finish reduce job\n"))
+			// debug(fmt.Sprintf("finish reduce job\n"))
 		}
 
 		// send ack to the coordinator
 		SendAck(jobInfo.FileName)
-		if jobInfo.JobType == Reduce {
-			debug(fmt.Sprintf("send reduce ack info: %+v\n", jobInfo.FileName))
-		} else {
-			debug(fmt.Sprintf("send map ack info: %+v\n", jobInfo.FileName))
-		}
+		//if jobInfo.JobType == Reduce {
+		//	debug(fmt.Sprintf("send reduce ack info: %+v\n", jobInfo.FileName))
+		//} else {
+		//	debug(fmt.Sprintf("send map ack info: %+v\n", jobInfo.FileName))
+		//}
 	}
 }
 
