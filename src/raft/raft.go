@@ -223,6 +223,7 @@ func (rf *Raft) convertToCandidate() {
 
 func (rf *Raft) convertToLeader() {
 	rf.serverState = Leader
+	rf.voteFor = -1
 
 	// reinitialize the leader's volatile states
 	leaderLastLogIndex := 1
@@ -523,11 +524,13 @@ func (rf *Raft) ticker() {
 
 		// Your code here (2A)
 		// Check if a leader election should be started.
-		// rf.debug("Check if a leader election should be started")
 		timeoutGap := 100 + (rand.Int63() % 400)
-		// If election timeout elapses without receiving AppendEntries RPC
-		// from current leader or granting vote to candidate: convert to candidate
-		if time.Now().Sub(rf.electionTimer).Milliseconds() > timeoutGap && ((rf.serverState == Follower && rf.voteFor == -1) || rf.serverState == Candidate) {
+		currentGap := time.Now().Sub(rf.electionTimer).Milliseconds()
+		rf.debug(fmt.Sprintf("Check if a leader election should be started, currentGap: %d, timeGap: %d, rf.voteFor: %d", currentGap, timeoutGap, rf.voteFor))
+		// follower: If election timeout elapses without receiving AppendEntries RPC from current leader
+		// or granting vote to candidate: convert to candidate
+		// candidate: If election timeout elapses: start new election
+		if (currentGap > timeoutGap && rf.serverState != Leader) || (rf.serverState == Follower && rf.voteFor == -1) {
 			rf.debug(fmt.Sprintf("begin election, the timegap: %d", time.Now().Sub(rf.electionTimer).Milliseconds()))
 			rf.convertToCandidate()
 
