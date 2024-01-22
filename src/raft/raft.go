@@ -607,6 +607,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	// Your code here (2B).
 	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	// if this server isn't the leader, returns false
 	if rf.serverState != Leader {
 		return index, term, false
@@ -622,7 +623,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// update matchIndex
 	rf.matchIndex[rf.me] = index
 	// rf.debug(fmt.Sprintf("[Start] add new log entry: %+v", rf.log))
-	rf.mu.Unlock()
 	// issues AppendEntries RPCs in background
 	return index, term, true
 }
@@ -649,16 +649,21 @@ func (rf *Raft) killed() bool {
 func (rf *Raft) sendHeartbeat() {
 	// rf.debug("begin to send heartbeat")
 	for {
+		rf.mu.RLock()
 		if rf.serverState != Leader {
+			rf.mu.RUnlock()
 			break
 		}
 
 		if rf.killed() {
+			rf.mu.RUnlock()
 			break
 		}
-
+		rf.mu.RUnlock()
 		for id, _ := range rf.peers {
+			rf.mu.RLock()
 			if id == rf.me {
+				rf.mu.RUnlock()
 				continue
 			}
 			args := AppendEntriesArgs{
@@ -679,6 +684,7 @@ func (rf *Raft) sendHeartbeat() {
 			}
 
 			reply := AppendEntriesReply{}
+			rf.mu.RUnlock()
 			go rf.sendAppendEntries(id, &args, &reply)
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -717,6 +723,7 @@ func (rf *Raft) ticker() {
 				rf.mu.RLock()
 				if id == rf.me {
 					// rf.debug(fmt.Sprintf("the same id %d, continue", id))
+					rf.mu.RUnlock()
 					continue
 				}
 				rf.mu.RUnlock()
