@@ -453,6 +453,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	reply.Success = true
 
 	// delete all unmatched entries in receiver and existed entries in args
+	// FIXME(zhr): maybe some bug, the committed log is not consistent
 	newEntryPos := 0
 	for _, entry := range args.Entries {
 		entryPosition := rf.getIndexPos(entry.Index)
@@ -580,12 +581,18 @@ func (rf *Raft) handleAppendEntries(id int) {
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	rf.mu.RLock()
+	peer := rf.peers[server]
+	rf.mu.RUnlock()
+	ok := peer.Call("Raft.RequestVote", args, reply)
 	return ok
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
-	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	rf.mu.RLock()
+	peer := rf.peers[server]
+	rf.mu.RUnlock()
+	ok := peer.Call("Raft.AppendEntries", args, reply)
 	return ok
 }
 
@@ -697,6 +704,7 @@ func (rf *Raft) ticker() {
 		// Your code here (2A)
 		// Check if a leader election should be started.
 		timeoutGap := 100 + (rand.Int63() % 400)
+		rf.mu.RLock()
 		currentGap := time.Now().Sub(rf.electionTimer).Milliseconds()
 		// rf.debug(fmt.Sprintf("Check if a leader election should be started, currentGap: %d, timeGap: %d, rf.voteFor: %d", currentGap, timeoutGap, rf.voteFor))
 		// follower: If election timeout elapses without receiving AppendEntries RPC from current leader
@@ -704,6 +712,7 @@ func (rf *Raft) ticker() {
 		// candidate: If election timeout elapses: start new election
 		// if (currentGap > timeoutGap && rf.serverState != Leader) || (rf.serverState == Follower && rf.voteFor == -1) {
 		if currentGap > timeoutGap && rf.serverState != Leader {
+			rf.mu.RUnlock()
 			// rf.debug(fmt.Sprintf("begin election, the currentGap: %d, timeoutGap: %d", currentGap, timeoutGap))
 			rf.mu.Lock()
 			rf.convertToCandidate()
@@ -718,7 +727,6 @@ func (rf *Raft) ticker() {
 				LastLogTerm:  selfLastLogTerm,
 			}
 			rf.mu.RUnlock()
-			reply := RequestVoteReply{}
 			for id, _ := range rf.peers {
 				rf.mu.RLock()
 				if id == rf.me {
@@ -731,6 +739,7 @@ func (rf *Raft) ticker() {
 					if rf.killed() {
 						return
 					}
+					reply := RequestVoteReply{}
 					// rf.debug(fmt.Sprintf(fmt.Sprintf("send request to %d", id)))
 					ret := rf.sendRequestVote(id, &args, &reply)
 					if ret {
@@ -761,6 +770,8 @@ func (rf *Raft) ticker() {
 					}
 				}(id)
 			}
+		} else {
+			rf.mu.RUnlock()
 		}
 		// pause for a random amount of time between 50 and 350
 		// milliseconds.
