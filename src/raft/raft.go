@@ -755,6 +755,8 @@ func (rf *Raft) ticker() {
 							} else {
 								rf.mu.Unlock()
 							}
+						} else {
+							rf.mu.Unlock()
 						}
 					}
 				}(id)
