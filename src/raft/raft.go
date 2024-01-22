@@ -507,10 +507,13 @@ func (rf *Raft) handleAppendEntries(id int) {
 				args.PrevLogTerm = rf.log[len(rf.log)-1].Term
 			}
 			if startPosition != -1 {
-				args.Entries = rf.log[startPosition:]
+				// need deep copy here
+				args.Entries = make([]LogEntry, len(rf.log)-startPosition)
+				copy(args.Entries, rf.log[startPosition:])
 			}
 		} else if args.PrevLogIndex == 0 {
-			args.Entries = rf.log[:]
+			args.Entries = make([]LogEntry, len(rf.log))
+			copy(args.Entries, rf.log[:])
 		}
 
 		rf.mu.RUnlock()
