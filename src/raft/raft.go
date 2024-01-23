@@ -235,8 +235,11 @@ type AppendEntriesReply struct {
 	Success bool
 	// the Term of the conflicting entry and the first Index it stores for that Term
 	// to reduce the number of rejected AppendEntries RPCs
-	ConflictTerm  int
+	ConflictTerm int
+	// ConflictIndex index of first entry with that term (if any)
 	ConflictIndex int
+	// log length
+	ConflictLength int
 }
 
 // some helper function
@@ -307,18 +310,20 @@ func (rf *Raft) debug(message string) {
 
 // checkLogMatch check whether log contains an entry at prevLogIndex whose Term matches prevLogTerm
 // TODO(zhr): need to change after applying snapshot, current Index equal to position in log
-func (rf *Raft) checkLogMatch(args *AppendEntriesArgs) (bool, int, int) {
+func (rf *Raft) checkLogMatch(args *AppendEntriesArgs) (bool, int, int, int) {
 	if args.PrevLogIndex < 0 {
-		return false, 0, 0
+		rf.debug("[checkLogMatch] there must be something wrong for AppendEntriesArgs")
+		return false, 0, 0, 0
 	}
 
 	// if the leader's log start from the beginning, return true
 	if args.PrevLogIndex == 0 {
-		return true, 0, 0
+		return true, 0, 0, 0
 	}
 
-	conflictTerm := 0
-	conflictIndex := 0
+	conflictTerm := -1
+	conflictIndex := -1
+	conflictLength := -1
 
 	isMatch := true
 	entryPosition := rf.getIndexPos(args.PrevLogIndex)
@@ -329,12 +334,14 @@ func (rf *Raft) checkLogMatch(args *AppendEntriesArgs) (bool, int, int) {
 			isMatch = true
 		} else {
 			isMatch = false
+			// XXX(zhr): maybe need to change after applying the snapshot
+			conflictLength = len(rf.log)
 		}
 	} else if rf.log[entryPosition].Term != args.PrevLogTerm {
 		// optimize by include the term of the conflicting entry and the first index it stores for that term
 		isMatch = false
-		conflictTerm = args.PrevLogTerm
-		conflictIndex = args.PrevLogIndex
+		conflictTerm = rf.log[entryPosition].Term
+		conflictIndex = rf.log[entryPosition].Index
 		for i := entryPosition; i >= 0; i-- {
 			if rf.log[i].Term != conflictTerm {
 				break
@@ -343,7 +350,7 @@ func (rf *Raft) checkLogMatch(args *AppendEntriesArgs) (bool, int, int) {
 		}
 	}
 
-	return isMatch, conflictIndex, conflictTerm
+	return isMatch, conflictIndex, conflictTerm, conflictLength
 }
 
 // getIndexPos convert Index to the entry position in log, prepare for snapshot
@@ -473,11 +480,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	// NOTE(zhr): according to the guidance, for heartbeat, also need to check prevLogIndex and prevLogTerm
 	// Reply false if log does not contain an entry at prevLogIndex whose Term matches prevLogTerm
-	isMatch, conflictIndex, conflictTerm := rf.checkLogMatch(args)
+	isMatch, conflictIndex, conflictTerm, conflictLength := rf.checkLogMatch(args)
 	if !isMatch {
 		reply.Success = false
 		reply.ConflictIndex = conflictIndex
 		reply.ConflictTerm = conflictTerm
+		reply.ConflictLength = conflictLength
 		// rf.debug(fmt.Sprintf("AppendEntries fail, ret: %+v, args: %+v", reply, args))
 		return
 	}
@@ -575,11 +583,33 @@ func (rf *Raft) handleAppendEntries(id int) {
 				// If AppendEntries fails because of log inconsistency: decrement nextIndex and retry
 				// decrement nextIndex to bypass all of the conflicting entries in that term
 				// skip the conflict term directly
-				if reply.ConflictIndex <= 0 {
-					rf.nextIndex[id] = 0
-				} else {
-					noConflictIndexPos := rf.getIndexPos(reply.ConflictIndex - 1)
-					rf.nextIndex[id] = rf.log[noConflictIndexPos].Index
+				//if reply.ConflictIndex <= 0 {
+				//	rf.nextIndex[id] = 0
+				//} else {
+				//	noConflictIndexPos := rf.getIndexPos(reply.ConflictIndex - 1)
+				//	rf.nextIndex[id] = rf.log[noConflictIndexPos].Index
+				//}
+				// XXX(zhr): maybe need to change after applying snapshot
+				// case3: follower's log is too short:
+				if reply.ConflictIndex > 0 {
+					rf.nextIndex[id] = reply.ConflictIndex
+				}
+				// case2: leader has ConflictTerm, nextIndex = leader's last entry for ConflictTerm
+				startPosition := rf.getIndexPos(rf.nextIndex[id])
+				if startPosition <= 0 {
+					startPosition = len(rf.log) - 1
+				}
+				found := false
+				for ; startPosition >= 0; startPosition-- {
+					if rf.log[startPosition].Term == reply.ConflictTerm {
+						found = true
+						rf.nextIndex[id] = rf.log[startPosition].Index
+						break
+					}
+				}
+				// case1: leader doesn't have ConflictTerm, nextIndex = ConflictIndex
+				if !found {
+					rf.nextIndex[id] = reply.ConflictIndex
 				}
 				rf.mu.Unlock()
 				continue
