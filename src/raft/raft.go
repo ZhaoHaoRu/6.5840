@@ -18,17 +18,18 @@ package raft
 //
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
 
-	//	"bytes"
+	// "bytes"
 	"math/rand"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	//	"6.5840/labgob"
+	"6.5840/labgob"
 	"6.5840/labrpc"
 )
 
@@ -131,6 +132,19 @@ func (rf *Raft) persist() {
 	// e.Encode(rf.yyy)
 	// raftstate := w.Bytes()
 	// rf.persister.Save(raftstate, nil)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	if err := e.Encode(rf.currentTerm); err != nil {
+		rf.debug("[persist] persist currentTerm fail")
+	}
+	if err := e.Encode(rf.voteFor); err != nil {
+		rf.debug("[persist] persist voteFor fail")
+	}
+	if err := e.Encode(rf.log); err != nil {
+		rf.debug("[persist] persist log fail")
+	}
+	raftState := w.Bytes()
+	rf.persister.Save(raftState, nil)
 }
 
 // restore previously persisted state.
@@ -151,6 +165,19 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var currentTerm int
+	var voteFor int
+	var log []LogEntry
+	if d.Decode(&currentTerm) != nil || d.Decode(&voteFor) != nil || d.Decode(&log) != nil {
+		rf.debug("[readPersist] fail to read persist info")
+		return
+	} else {
+		rf.currentTerm = currentTerm
+		rf.voteFor = voteFor
+		rf.log = log
+	}
 }
 
 // the service says it has created a snapshot that has
@@ -226,11 +253,13 @@ func (rf *Raft) convertToCandidate() {
 	rf.voteFor = rf.me
 	rf.electionTimer = time.Now()
 	rf.votes = 1
+	rf.persist()
 }
 
 func (rf *Raft) convertToLeader() {
 	rf.serverState = Leader
 	rf.voteFor = -1
+	rf.persist()
 
 	// reinitialize the leader's volatile states
 	leaderLastLogIndex := 1
@@ -395,6 +424,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.currentTerm = args.Term
 		// rf.debug(fmt.Sprintf("get request from %d, current Term too small, convert to follower", args.CandidateId))
 		rf.convertToFollower()
+		rf.persist()
 	}
 
 	// If votedFor is null or candidateId
@@ -405,6 +435,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		if args.LastLogTerm > selfLastLogTerm || (args.LastLogTerm == selfLastLogTerm && args.LastLogIndex >= selfLastLogIndex) {
 			// rf.debug(fmt.Sprintf("vote for %d", args.CandidateId))
 			rf.voteFor = args.CandidateId
+			rf.persist()
 			reply.VoteGranted = true
 			return
 		}
@@ -429,6 +460,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
 		rf.convertToFollower()
+		rf.persist()
 	}
 
 	// update election timeout
@@ -472,6 +504,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// Append any new entries not already in the log
 	entries := args.Entries[newEntryPos:]
 	rf.log = append(rf.log, entries...)
+	rf.persist()
 	//if len(entries) > 0 {
 	//	rf.debug(fmt.Sprintf("[AppendEntries] replicate log success, entries: %+v", entries))
 	//}
@@ -630,6 +663,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	// append entry to local log
 	rf.log = append(rf.log, LogEntry{command, term, index})
+	rf.persist()
 	// update matchIndex
 	rf.matchIndex[rf.me] = index
 	// rf.debug(fmt.Sprintf("[Start] add new log entry: %+v", rf.log))
@@ -750,7 +784,9 @@ func (rf *Raft) ticker() {
 						rf.mu.Lock()
 						if reply.Term > rf.currentTerm {
 							// rf.debug("convert to follower after send request vote")
+							rf.currentTerm = reply.Term
 							rf.convertToFollower()
+							rf.persist()
 							rf.mu.Unlock()
 						} else if reply.VoteGranted {
 							// rf.debug(fmt.Sprintf("get reply.VoteGranted from %d", id))
