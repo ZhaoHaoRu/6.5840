@@ -1119,6 +1119,10 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 	leader1 := cfg.checkOneLeader()
 
 	for i := 0; i < iters; i++ {
+		fmt.Printf("iter: %d\n", i)
+		if i >= 1 {
+			fmt.Printf("get here")
+		}
 		victim := (leader1 + 1) % servers
 		sender := leader1
 		if i%3 == 1 {
@@ -1151,9 +1155,11 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 			cfg.one(rand.Int(), servers-1, true)
 		}
 
+		fmt.Printf("line 1154\n")
 		if cfg.LogSize() >= MAXLOGSIZE {
 			cfg.t.Fatalf("Log size too large")
 		}
+		fmt.Printf("line 1158\n")
 		if disconnect {
 			// reconnect a follower, who maybe behind and
 			// needs to rceive a snapshot to catch up.
@@ -1161,6 +1167,7 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 			cfg.one(rand.Int(), servers, true)
 			leader1 = cfg.checkOneLeader()
 		}
+		fmt.Printf("line 1166\n")
 		if crash {
 			cfg.start1(victim, cfg.applierSnap)
 			cfg.connect(victim)
