@@ -388,7 +388,7 @@ func (rf *Raft) debug(message string) {
 // TODO(zhr): need to change after applying snapshot, current Index equal to position in log
 func (rf *Raft) checkLogMatch(args *AppendEntriesArgs) (bool, int, int, int) {
 	if args.PrevLogIndex < 0 {
-		rf.debug("[checkLogMatch] there must be something wrong for AppendEntriesArgs")
+		// rf.debug("[checkLogMatch] there must be something wrong for AppendEntriesArgs")
 		return false, 0, 0, 0
 	}
 
@@ -470,7 +470,7 @@ func (rf *Raft) handleApplyEntries() {
 	rf.lastApplied += 1
 	entriesForApply := make([]LogEntry, commitIndex-rf.lastApplied+1)
 	copy(entriesForApply, rf.log[rf.getIndexPos(rf.lastApplied):rf.getIndexPos(rf.commitIndex)+1])
-	rf.debug(fmt.Sprintf("[handleApplyEntries] log for apply: %+v\n", entriesForApply))
+	// rf.debug(fmt.Sprintf("[handleApplyEntries] log for apply: %+v\n", entriesForApply))
 	rf.mu.Unlock()
 	for _, entry := range entriesForApply {
 		applyMsg := ApplyMsg{
@@ -479,7 +479,7 @@ func (rf *Raft) handleApplyEntries() {
 			CommandIndex: entry.Index,
 		}
 		rf.applyCh <- applyMsg
-		rf.debug(fmt.Sprintf("[handleApplyEntries] commitIndex %d, data: %+v", applyMsg.CommandIndex, applyMsg.Command))
+		// rf.debug(fmt.Sprintf("[handleApplyEntries] commitIndex %d, data: %+v", applyMsg.CommandIndex, applyMsg.Command))
 	}
 
 	rf.mu.Lock()
@@ -588,7 +588,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.ConflictIndex = conflictIndex
 		reply.ConflictTerm = conflictTerm
 		reply.ConflictLength = conflictLength
-		rf.debug(fmt.Sprintf("AppendEntries fail, args: %+v, reply: %+v logs: %+v", args, reply, rf.log))
+		// rf.debug(fmt.Sprintf("AppendEntries fail, args: %+v, reply: %+v logs: %+v", args, reply, rf.log))
 		return
 	}
 
@@ -615,9 +615,9 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	entries := args.Entries[newEntryPos:]
 	rf.log = append(rf.log, entries...)
 	rf.persist()
-	if len(entries) > 0 {
-		rf.debug(fmt.Sprintf("[AppendEntries] replicate log success, entries: %+v, args: %+v, logs: %+v", entries, args, rf.log))
-	}
+	//if len(entries) > 0 {
+	//	rf.debug(fmt.Sprintf("[AppendEntries] replicate log success, args: %+v, entries: %+v, logs: %+v", args, entries, rf.log))
+	//}
 
 	// If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, Index of last new entry)
 	if args.LeaderCommit > rf.commitIndex {
@@ -630,7 +630,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		} else {
 			rf.commitIndex = lastNewIndex
 		}
-		rf.debug(fmt.Sprintf("[AppendEntries] update commit index to: %d, logs: %+v\n, args: %+v", rf.commitIndex, rf.log, args))
+		// rf.debug(fmt.Sprintf("[AppendEntries] update commit index to: %d, logs: %+v\n, args: %+v", rf.commitIndex, rf.log, args))
 	}
 }
 
@@ -639,6 +639,10 @@ func (rf *Raft) handleAppendEntries(id int, isHeartBeat bool) {
 	for {
 		// check whether we need to send snapshot
 		rf.mu.RLock()
+		if rf.serverState != Leader {
+			rf.mu.RUnlock()
+			break
+		}
 		// rf.debug(fmt.Sprintf("[handleAppendEntries] id: %d, rf.nextIndex[id]: %d, rf.lastIncludedIndex: %d", id, rf.nextIndex[id], rf.lastIncludedIndex))
 		if rf.nextIndex[id] <= rf.lastIncludedIndex && rf.lastIncludedIndex != 0 {
 			rf.mu.RUnlock()
@@ -685,7 +689,7 @@ func (rf *Raft) handleAppendEntries(id int, isHeartBeat bool) {
 			// If RPC request or response contains term T > currentTerm: set currentTerm = T, convert to follower
 			// rf.debug(fmt.Sprintf("[handleAppendEntries] id: %d, args: %+v, reply: %+v", id, args, reply))
 			if reply.Term > rf.currentTerm {
-				rf.debug(fmt.Sprintf("[handleAppendEntries] convert to follower, new term: %+v", reply.Term))
+				// rf.debug(fmt.Sprintf("[handleAppendEntries] convert to follower, new term: %+v", reply.Term))
 				rf.currentTerm = reply.Term
 				rf.convertToFollower(true)
 				rf.mu.Unlock()
@@ -719,7 +723,7 @@ func (rf *Raft) handleAppendEntries(id int, isHeartBeat bool) {
 				//}
 				// XXX(zhr): maybe need to change after applying snapshot
 				// case3: follower's log is too short:
-				rf.debug(fmt.Sprintf("[handleAppendEntries] handle id: %d fail, args: %+v, reply info: %+v, leader log info: %+v", id, args, reply, rf.log))
+				// rf.debug(fmt.Sprintf("[handleAppendEntries] handle id: %d fail, args: %+v, reply info: %+v, leader log info: %+v", id, args, reply, rf.log))
 				if reply.ConflictTerm < 0 {
 					rf.nextIndex[id] = reply.ConflictLength
 				} else {
@@ -929,7 +933,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.persist()
 	// update matchIndex
 	rf.matchIndex[rf.me] = index
-	rf.debug(fmt.Sprintf("[Start] add new log entry: %+v", rf.log))
+	// rf.debug(fmt.Sprintf("[Start] add new log entry: %+v", rf.log))
 	// issues AppendEntries RPCs in background
 	return index, term, true
 }
@@ -1009,7 +1013,7 @@ func (rf *Raft) ticker() {
 				LastLogIndex: selfLastLogIndex,
 				LastLogTerm:  selfLastLogTerm,
 			}
-			rf.debug(fmt.Sprintf("[ticker] begin re election, args: %+v", args))
+			// rf.debug(fmt.Sprintf("[ticker] begin re election, args: %+v", args))
 			rf.mu.RUnlock()
 			for id, _ := range rf.peers {
 				rf.mu.RLock()
@@ -1038,7 +1042,7 @@ func (rf *Raft) ticker() {
 						} else if reply.VoteGranted && rf.serverState == Candidate {
 							// rf.debug(fmt.Sprintf("get reply.VoteGranted from %d, current vote count: %d", id, rf.votes))
 							rf.votes += 1
-							rf.debug(fmt.Sprintf("get reply.VoteGranted from %d, current vote count: %d", id, rf.votes))
+							// rf.debug(fmt.Sprintf("get reply.VoteGranted from %d, current vote count: %d", id, rf.votes))
 							// If votes received from majority of servers: become leader
 							if rf.getMajorityVote() && rf.serverState != Leader {
 								// rf.debug(fmt.Sprintf("get majority vote, convert to leader"))

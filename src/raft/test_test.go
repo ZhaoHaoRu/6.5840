@@ -103,7 +103,7 @@ func TestManyElections2A(t *testing.T) {
 
 	iters := 10
 	for ii := 1; ii < iters; ii++ {
-		fmt.Printf("iter: %d\n", ii)
+		// fmt.Printf("iter: %d\n", ii)
 		// disconnect three nodes
 		i1 := rand.Int() % servers
 		i2 := rand.Int() % servers
@@ -195,7 +195,7 @@ func TestFollowerFailure2B(t *testing.T) {
 	// disconnect one follower from the network.
 	leader1 := cfg.checkOneLeader()
 	cfg.disconnect((leader1 + 1) % servers)
-	fmt.Printf("disconnect %d\n", (leader1+1)%servers)
+	// fmt.Printf("disconnect %d\n", (leader1+1)%servers)
 
 	// the leader and remaining follower should be
 	// able to agree despite the disconnected follower.
@@ -826,15 +826,15 @@ func TestFigure82C(t *testing.T) {
 
 	cfg.one(rand.Int(), 1, true)
 
-	getLiveServers := func(cfg *config) []int {
-		result := make([]int, 0)
-		for i := 0; i < servers; i++ {
-			if cfg.rafts[i] != nil {
-				result = append(result, i)
-			}
-		}
-		return result
-	}
+	//getLiveServers := func(cfg *config) []int {
+	//	result := make([]int, 0)
+	//	for i := 0; i < servers; i++ {
+	//		if cfg.rafts[i] != nil {
+	//			result = append(result, i)
+	//		}
+	//	}
+	//	return result
+	//}
 
 	nup := servers
 	for iters := 0; iters < 1000; iters++ {
@@ -852,13 +852,13 @@ func TestFigure82C(t *testing.T) {
 			ms := rand.Int63() % (int64(RaftElectionTimeout/time.Millisecond) / 2)
 			time.Sleep(time.Duration(ms) * time.Millisecond)
 			if leader != -1 {
-				fmt.Printf("iter %d with leader %d get long run, live servers: %+v\n", iters, leader, getLiveServers(cfg))
+				// fmt.Printf("iter %d with leader %d get long run, live servers: %+v\n", iters, leader, getLiveServers(cfg))
 			}
 		} else {
 			ms := (rand.Int63() % 13)
 			time.Sleep(time.Duration(ms) * time.Millisecond)
 			if leader != -1 {
-				fmt.Printf("iter %d with leader %d get short run, live servers: %+v\n", iters, leader, getLiveServers(cfg))
+				// fmt.Printf("iter %d with leader %d get short run, live servers: %+v\n", iters, leader, getLiveServers(cfg))
 			}
 		}
 
@@ -927,6 +927,16 @@ func TestFigure8Unreliable2C(t *testing.T) {
 
 	cfg.one(rand.Int()%10000, 1, true)
 
+	//getLiveServers := func(cfg *config) []int {
+	//	result := make([]int, 0)
+	//	for i := 0; i < servers; i++ {
+	//		if cfg.rafts[i] != nil && cfg.connected[i] {
+	//			result = append(result, i)
+	//		}
+	//	}
+	//	return result
+	//}
+
 	nup := servers
 	for iters := 0; iters < 1000; iters++ {
 		if iters == 200 {
@@ -942,9 +952,15 @@ func TestFigure8Unreliable2C(t *testing.T) {
 
 		if (rand.Int() % 1000) < 100 {
 			ms := rand.Int63() % (int64(RaftElectionTimeout/time.Millisecond) / 2)
+			//if leader != -1 {
+			//	fmt.Printf("iter %d with leader %d get long run, live servers: %+v\n", iters, leader, getLiveServers(cfg))
+			//}
 			time.Sleep(time.Duration(ms) * time.Millisecond)
 		} else {
 			ms := (rand.Int63() % 13)
+			//if leader != -1 {
+			//	fmt.Printf("iter %d with leader %d get long run, live servers: %+v\n", iters, leader, getLiveServers(cfg))
+			//}
 			time.Sleep(time.Duration(ms) * time.Millisecond)
 		}
 
