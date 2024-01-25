@@ -63,14 +63,12 @@ func TestReElection2A(t *testing.T) {
 
 	// if the leader disconnects, a new one should be elected.
 	cfg.disconnect(leader1)
-	println("get line 64")
 	cfg.checkOneLeader()
 
 	// if the old leader rejoins, that shouldn't
 	// disturb the new leader. and the old leader
 	// should switch to follower.
 	cfg.connect(leader1)
-	println("get line 73")
 	leader2 := cfg.checkOneLeader()
 
 	// if there's no quorum, no new leader should
@@ -81,12 +79,10 @@ func TestReElection2A(t *testing.T) {
 
 	// check that the one connected server
 	// does not think it is the leader.
-	println("get line 84")
 	cfg.checkNoLeader()
 
 	// if a quorum arises, it should elect a leader.
 	cfg.connect((leader2 + 1) % servers)
-	println("get line 89")
 	cfg.checkOneLeader()
 
 	// re-join of last node shouldn't prevent leader from existing.
@@ -125,7 +121,6 @@ func TestManyElections2A(t *testing.T) {
 		cfg.connect(i3)
 	}
 
-	fmt.Println("get line 128")
 	cfg.checkOneLeader()
 
 	cfg.end()
@@ -519,6 +514,8 @@ func TestBackup2B(t *testing.T) {
 		cfg.rafts[leader1].Start(rand.Int())
 	}
 
+	// fmt.Printf("get line 522\n")
+
 	time.Sleep(RaftElectionTimeout / 2)
 
 	cfg.disconnect((leader1 + 0) % servers)
@@ -534,6 +531,8 @@ func TestBackup2B(t *testing.T) {
 		cfg.one(rand.Int(), 3, true)
 	}
 
+	// fmt.Printf("get line 539\n")
+
 	// now another partitioned leader and one follower
 	leader2 := cfg.checkOneLeader()
 	other := (leader1 + 2) % servers
@@ -542,10 +541,14 @@ func TestBackup2B(t *testing.T) {
 	}
 	cfg.disconnect(other)
 
+	// fmt.Printf("get line 549\n")
+
 	// lots more commands that won't commit
 	for i := 0; i < 50; i++ {
 		cfg.rafts[leader2].Start(rand.Int())
 	}
+
+	// fmt.Printf("get line 556\n")
 
 	time.Sleep(RaftElectionTimeout / 2)
 
@@ -562,12 +565,15 @@ func TestBackup2B(t *testing.T) {
 		cfg.one(rand.Int(), 3, true)
 	}
 
+	// fmt.Printf("get line 573\n")
+
 	// now everyone
 	for i := 0; i < servers; i++ {
 		cfg.connect(i)
 	}
 	cfg.one(rand.Int(), servers, true)
 
+	// fmt.Printf("get line 581\n")
 	cfg.end()
 }
 
@@ -820,9 +826,18 @@ func TestFigure82C(t *testing.T) {
 
 	cfg.one(rand.Int(), 1, true)
 
+	getLiveServers := func(cfg *config) []int {
+		result := make([]int, 0)
+		for i := 0; i < servers; i++ {
+			if cfg.rafts[i] != nil {
+				result = append(result, i)
+			}
+		}
+		return result
+	}
+
 	nup := servers
 	for iters := 0; iters < 1000; iters++ {
-		fmt.Printf("iter: %d\n", iters)
 		leader := -1
 		for i := 0; i < servers; i++ {
 			if cfg.rafts[i] != nil {
@@ -836,9 +851,15 @@ func TestFigure82C(t *testing.T) {
 		if (rand.Int() % 1000) < 100 {
 			ms := rand.Int63() % (int64(RaftElectionTimeout/time.Millisecond) / 2)
 			time.Sleep(time.Duration(ms) * time.Millisecond)
+			if leader != -1 {
+				fmt.Printf("iter %d with leader %d get long run, live servers: %+v\n", iters, leader, getLiveServers(cfg))
+			}
 		} else {
 			ms := (rand.Int63() % 13)
 			time.Sleep(time.Duration(ms) * time.Millisecond)
+			if leader != -1 {
+				fmt.Printf("iter %d with leader %d get short run, live servers: %+v\n", iters, leader, getLiveServers(cfg))
+			}
 		}
 
 		if leader != -1 {
@@ -1119,10 +1140,6 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 	leader1 := cfg.checkOneLeader()
 
 	for i := 0; i < iters; i++ {
-		fmt.Printf("iter: %d\n", i)
-		if i >= 1 {
-			fmt.Printf("get here")
-		}
 		victim := (leader1 + 1) % servers
 		sender := leader1
 		if i%3 == 1 {
@@ -1155,11 +1172,10 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 			cfg.one(rand.Int(), servers-1, true)
 		}
 
-		fmt.Printf("line 1154\n")
 		if cfg.LogSize() >= MAXLOGSIZE {
 			cfg.t.Fatalf("Log size too large")
 		}
-		fmt.Printf("line 1158\n")
+
 		if disconnect {
 			// reconnect a follower, who maybe behind and
 			// needs to rceive a snapshot to catch up.
@@ -1167,7 +1183,7 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 			cfg.one(rand.Int(), servers, true)
 			leader1 = cfg.checkOneLeader()
 		}
-		fmt.Printf("line 1166\n")
+
 		if crash {
 			cfg.start1(victim, cfg.applierSnap)
 			cfg.connect(victim)
