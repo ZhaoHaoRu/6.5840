@@ -1,5 +1,10 @@
 package kvraft
 
+import (
+	"fmt"
+	"os"
+)
+
 const (
 	OK             = "OK"
 	ErrNoKey       = "ErrNoKey"
@@ -7,6 +12,15 @@ const (
 )
 
 type Err string
+
+const (
+	ArgEmptyErr   Err = "The args is nil"
+	ReplyEmptyErr Err = "The reply is nil"
+	NotLeaderErr  Err = "Current raft peer is not a leader"
+	TimeoutErr    Err = "Operation timeout"
+	UnknownErr    Err = "Unknown error"
+	None          Err = ""
+)
 
 // Put or Append
 type PutAppendArgs struct {
@@ -16,6 +30,8 @@ type PutAppendArgs struct {
 	// You'll have to add definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	ClerkId   int64
+	SeqNumber int
 }
 
 type PutAppendReply struct {
@@ -25,9 +41,17 @@ type PutAppendReply struct {
 type GetArgs struct {
 	Key string
 	// You'll have to add definitions here.
+	ClerkId   int64
+	SeqNumber int
 }
 
 type GetReply struct {
 	Err   Err
 	Value string
+}
+
+func debug(message string) {
+	pid := os.Getpid()
+	logMessage := fmt.Sprintf("[pid %d] %s\n", pid, message)
+	fmt.Printf(logMessage)
 }

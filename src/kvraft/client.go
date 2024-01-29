@@ -1,13 +1,19 @@
 package kvraft
 
-import "6.5840/labrpc"
+import (
+	"6.5840/labrpc"
+)
 import "crypto/rand"
 import "math/big"
-
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
+	leaderId int
+	// clerkId the Id for current clerk
+	clerkId int64
+	// seqNumber for current clerk
+	seqNumber int
 }
 
 func nrand() int64 {
@@ -21,6 +27,9 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
 	// You'll have to add code here.
+	ck.leaderId = -1
+	ck.clerkId = nrand()
+	ck.seqNumber = 0
 	return ck
 }
 
@@ -35,9 +44,36 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) string {
-
 	// You will have to modify this function.
-	return ""
+	args := GetArgs{
+		Key:       key,
+		ClerkId:   ck.clerkId,
+		SeqNumber: ck.seqNumber,
+	}
+	ck.seqNumber += 1
+	reply := GetReply{Err: None}
+	ok := false
+	// if clerk knows the leader, directly send to the leader
+	if ck.leaderId != -1 && ck.servers[ck.leaderId] != nil {
+		ok = ck.servers[ck.leaderId].Call("KVServer.Get", &args, &reply)
+		if ok && reply.Err == None {
+			// debug(fmt.Sprintf("[Clerk.Get] send to server success, args: %+v, leader: %d, reply: %+v", args, ck.leaderId, reply))
+			return reply.Value
+		}
+	}
+	// If the Clerk sends an RPC to the wrong kvserver, or if it cannot reach the kvserver,
+	// the Clerk should re-try by sending to a different kvserver.
+	for {
+		for i, server := range ck.servers {
+			reply.Err = None
+			ok = server.Call("KVServer.Get", &args, &reply)
+			if ok && reply.Err == None {
+				// debug(fmt.Sprintf("[Clerk.Get] send to server success, args: %+v, leader: %d, reply: %+v", args, i, reply))
+				ck.leaderId = i
+				return reply.Value
+			}
+		}
+	}
 }
 
 // shared by Put and Append.
@@ -50,6 +86,38 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
+	args := PutAppendArgs{
+		Key:       key,
+		Value:     value,
+		Op:        op,
+		ClerkId:   ck.clerkId,
+		SeqNumber: ck.seqNumber,
+	}
+	ck.seqNumber += 1
+	reply := PutAppendReply{Err: None}
+	ok := false
+	// if clerk knows the leader, directly send to the leader
+	if ck.leaderId != -1 && ck.servers[ck.leaderId] != nil {
+		ok = ck.servers[ck.leaderId].Call("KVServer.PutAppend", &args, &reply)
+		if ok && reply.Err == None {
+			// debug(fmt.Sprintf("[Clerk.PutAppend] send to server success, args: %+v, leader: %d, reply: %+v", args, ck.leaderId, reply))
+			return
+		}
+	}
+	// If the Clerk sends an RPC to the wrong kvserver, or if it cannot reach the kvserver,
+	// the Clerk should re-try by sending to a different kvserver.
+	for {
+		for i, server := range ck.servers {
+			reply.Err = None
+			ok = server.Call("KVServer.PutAppend", &args, &reply)
+			if ok && reply.Err == None {
+				// debug(fmt.Sprintf("[Clerk.PutAppend] send to server success, args: %+v, leader: %d, reply: %+v", args, i, reply))
+				ck.leaderId = i
+				return
+			}
+		}
+	}
+
 }
 
 func (ck *Clerk) Put(key string, value string) {

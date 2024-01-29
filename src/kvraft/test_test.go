@@ -1,6 +1,8 @@
 package kvraft
 
-import "6.5840/porcupine"
+import (
+	"6.5840/porcupine"
+)
 import "6.5840/models"
 import "testing"
 import "strconv"
@@ -68,6 +70,7 @@ func Put(cfg *config, ck *Clerk, key string, value string, log *OpLog, cli int) 
 	end := int64(time.Since(t0))
 	cfg.op()
 	if log != nil {
+		// fmt.Printf("[test] put key success, key %+v, value: %+v\n", key, value)
 		log.Append(porcupine.Operation{
 			Input:    models.KvInput{Op: 1, Key: key, Value: value},
 			Output:   models.KvOutput{},
@@ -84,6 +87,7 @@ func Append(cfg *config, ck *Clerk, key string, value string, log *OpLog, cli in
 	end := int64(time.Since(t0))
 	cfg.op()
 	if log != nil {
+		// fmt.Printf("[test] append key success, key %+v, value: %+v\n", key, value)
 		log.Append(porcupine.Operation{
 			Input:    models.KvInput{Op: 2, Key: key, Value: value},
 			Output:   models.KvOutput{},
@@ -263,7 +267,9 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 			}()
 			last := "" // only used when not randomkeys
 			if !randomkeys {
+				// fmt.Printf("%d: client new put %v %v\n", cli, strconv.Itoa(cli), last)
 				Put(cfg, myck, strconv.Itoa(cli), last, opLog, cli)
+				// fmt.Printf("finish put")
 			}
 			for atomic.LoadInt32(&done_clients) == 0 {
 				var key string
@@ -272,9 +278,10 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 				} else {
 					key = strconv.Itoa(cli)
 				}
+				// fmt.Printf("get line 281")
 				nv := "x " + strconv.Itoa(cli) + " " + strconv.Itoa(j) + " y"
 				if (rand.Int() % 1000) < 500 {
-					// log.Printf("%d: client new append %v\n", cli, nv)
+					// fmt.Printf("%d: client new append %v %v\n", cli, key, nv)
 					Append(cfg, myck, key, nv, opLog, cli)
 					if !randomkeys {
 						last = NextValue(last, nv)
@@ -283,10 +290,11 @@ func GenericTest(t *testing.T, part string, nclients int, nservers int, unreliab
 				} else if randomkeys && (rand.Int()%1000) < 100 {
 					// we only do this when using random keys, because it would break the
 					// check done after Get() operations
+					// fmt.Printf("%d: client new put %v %v\n", cli, key, nv)
 					Put(cfg, myck, key, nv, opLog, cli)
 					j++
 				} else {
-					// log.Printf("%d: client new get %v\n", cli, key)
+					// fmt.Printf("%d: client new get %v\n", cli, key)
 					v := Get(cfg, myck, key, opLog, cli)
 					// the following check only makes sense when we're not using random keys
 					if !randomkeys && v != last {
