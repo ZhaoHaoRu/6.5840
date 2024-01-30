@@ -19,6 +19,7 @@ const (
 	NotLeaderErr  Err = "Current raft peer is not a leader"
 	TimeoutErr    Err = "Operation timeout"
 	UnknownErr    Err = "Unknown error"
+	OutOfDateErr  Err = "The request is out of date"
 	None          Err = ""
 )
 

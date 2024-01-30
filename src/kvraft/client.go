@@ -2,6 +2,8 @@ package kvraft
 
 import (
 	"6.5840/labrpc"
+	"fmt"
+	"sync"
 )
 import "crypto/rand"
 import "math/big"
@@ -14,6 +16,8 @@ type Clerk struct {
 	clerkId int64
 	// seqNumber for current clerk
 	seqNumber int
+	// mu is the lock for concurrency
+	mu sync.RWMutex
 }
 
 func nrand() int64 {
@@ -33,6 +37,10 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	return ck
 }
 
+func (ck *Clerk) GetClerkId() int64 {
+	return ck.clerkId
+}
+
 // fetch the current value for a key.
 // returns "" if the key does not exist.
 // keeps trying forever in the face of all other errors.
@@ -45,32 +53,38 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) Get(key string) string {
 	// You will have to modify this function.
+	ck.mu.Lock()
 	args := GetArgs{
 		Key:       key,
 		ClerkId:   ck.clerkId,
 		SeqNumber: ck.seqNumber,
 	}
 	ck.seqNumber += 1
-	reply := GetReply{Err: None}
+	ck.mu.Unlock()
 	ok := false
 	// if clerk knows the leader, directly send to the leader
 	if ck.leaderId != -1 && ck.servers[ck.leaderId] != nil {
+		reply := GetReply{Err: None}
 		ok = ck.servers[ck.leaderId].Call("KVServer.Get", &args, &reply)
-		if ok && reply.Err == None {
-			// debug(fmt.Sprintf("[Clerk.Get] send to server success, args: %+v, leader: %d, reply: %+v", args, ck.leaderId, reply))
+		if ok && (reply.Err == None || len(reply.Err) == 0) {
+			debug(fmt.Sprintf("[Clerk.Get] case1: receive success, args: %+v, leader: %d, reply: %+v", args, ck.leaderId, reply))
 			return reply.Value
+		} else {
+			// debug(fmt.Sprintf("[Clerk.Get] case1: receive fail, args: %+v, leader: %d, reply: %+v, ok: %+v", args, ck.leaderId, reply, ok))
 		}
 	}
 	// If the Clerk sends an RPC to the wrong kvserver, or if it cannot reach the kvserver,
 	// the Clerk should re-try by sending to a different kvserver.
 	for {
 		for i, server := range ck.servers {
-			reply.Err = None
+			reply := GetReply{Err: None}
 			ok = server.Call("KVServer.Get", &args, &reply)
-			if ok && reply.Err == None {
-				// debug(fmt.Sprintf("[Clerk.Get] send to server success, args: %+v, leader: %d, reply: %+v", args, i, reply))
+			if ok && (reply.Err == None || len(reply.Err) == 0) {
 				ck.leaderId = i
+				debug(fmt.Sprintf("[Clerk.Get] case2: receive success, args: %+v, leader: %d, reply: %+v", args, i, reply))
 				return reply.Value
+			} else {
+				// debug(fmt.Sprintf("[Clerk.Get] case2: receive fail, args: %+v, leader: %d, reply: %+v, ok: %+v", args, i, reply, ok))
 			}
 		}
 	}
@@ -86,6 +100,7 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
+	ck.mu.Lock()
 	args := PutAppendArgs{
 		Key:       key,
 		Value:     value,
@@ -94,26 +109,32 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 		SeqNumber: ck.seqNumber,
 	}
 	ck.seqNumber += 1
-	reply := PutAppendReply{Err: None}
+	ck.mu.Unlock()
 	ok := false
 	// if clerk knows the leader, directly send to the leader
 	if ck.leaderId != -1 && ck.servers[ck.leaderId] != nil {
+		reply := PutAppendReply{Err: None}
 		ok = ck.servers[ck.leaderId].Call("KVServer.PutAppend", &args, &reply)
-		if ok && reply.Err == None {
-			// debug(fmt.Sprintf("[Clerk.PutAppend] send to server success, args: %+v, leader: %d, reply: %+v", args, ck.leaderId, reply))
+
+		if ok && (reply.Err == None || len(reply.Err) == 0) {
+			debug(fmt.Sprintf("[Clerk.PutAppend] case1: receive success, args: %+v, leader: %d, reply: %+v", args, ck.leaderId, reply))
 			return
+		} else {
+			// debug(fmt.Sprintf("[Clerk.PutAppend] case1: receive fail, args: %+v, leader: %d, reply: %+v", args, ck.leaderId, reply))
 		}
 	}
 	// If the Clerk sends an RPC to the wrong kvserver, or if it cannot reach the kvserver,
 	// the Clerk should re-try by sending to a different kvserver.
 	for {
 		for i, server := range ck.servers {
-			reply.Err = None
+			reply := PutAppendReply{Err: None}
 			ok = server.Call("KVServer.PutAppend", &args, &reply)
-			if ok && reply.Err == None {
-				// debug(fmt.Sprintf("[Clerk.PutAppend] send to server success, args: %+v, leader: %d, reply: %+v", args, i, reply))
+			if ok && (reply.Err == None || len(reply.Err) == 0) {
+				debug(fmt.Sprintf("[Clerk.PutAppend] case2: receive success, args: %+v, leader: %d, reply: %+v", args, i, reply))
 				ck.leaderId = i
 				return
+			} else {
+				// debug(fmt.Sprintf("[Clerk.PutAppend] case2: receive fail, args: %+v, leader: %d, reply: %+v", args, ck.leaderId, reply))
 			}
 		}
 	}

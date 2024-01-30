@@ -30,7 +30,7 @@ const (
 	UnKnown
 )
 
-const RaftTimeOut = 30 * time.Second
+const RaftTimeOut = 3 * time.Second
 
 type Op struct {
 	// Your definitions here.
@@ -46,6 +46,8 @@ type Op struct {
 type RaftApplyResult struct {
 	Err   Err
 	Value string
+	// in case for term mismatch
+	Term int
 }
 
 // StateMachine is the backend for fault-tolerant kv
@@ -55,6 +57,7 @@ type StateMachine struct {
 
 func (sm *StateMachine) get(key string) string {
 	result, ok := sm.storage[key]
+	// debug(fmt.Sprintf("[StateMachine.get] Key:%+v, value:%+v", key, result))
 	if ok {
 		return result
 	}
@@ -63,10 +66,11 @@ func (sm *StateMachine) get(key string) string {
 
 func (sm *StateMachine) put(key string, value string) {
 	sm.storage[key] = value
+	// debug(fmt.Sprintf("[StateMachine.put] Key:%+v, value:%+v", key, value))
 }
 
 func (sm *StateMachine) append(key string, value string) {
-	curValue := sm.get(key)
+	curValue, _ := sm.storage[key]
 	curValue += value
 	sm.put(key, curValue)
 }
@@ -93,12 +97,21 @@ func (kv *KVServer) debug(message string) {
 	fmt.Printf(logMessage)
 }
 
+func (kv *KVServer) getReplyChan(index int) chan RaftApplyResult {
+	resultCh, ok := kv.replyChannels[index]
+	if !ok {
+		kv.replyChannels[index] = make(chan RaftApplyResult)
+	}
+	resultCh, _ = kv.replyChannels[index]
+	return resultCh
+}
+
 // operationHandler handle get/put/append together
 func (kv *KVServer) operationHandler(op *Op) RaftApplyResult {
 	result := RaftApplyResult{}
 
 	// enter an Op in the Raft log using Start()
-	index, _, isLeader := kv.rf.Start(*op)
+	index, term, isLeader := kv.rf.Start(*op)
 	if !isLeader {
 		result.Err = NotLeaderErr
 		return result
@@ -107,14 +120,7 @@ func (kv *KVServer) operationHandler(op *Op) RaftApplyResult {
 	// keep reading applyCh while PutAppend() and Get() handlers submit
 	// commands to the Raft log using Start()
 	kv.mu.Lock()
-	resultCh, ok := kv.replyChannels[index]
-	if !ok {
-		kv.replyChannels[index] = make(chan RaftApplyResult)
-		resultCh, ok = kv.replyChannels[index]
-		if !ok {
-			panic("[operationHandler] create reply channel fail")
-		}
-	}
+	resultCh := kv.getReplyChan(index)
 	// kv.debug(fmt.Sprintf("[operationHandler] create receive channel success, index: %d", index))
 	kv.mu.Unlock()
 	select {
@@ -122,14 +128,21 @@ func (kv *KVServer) operationHandler(op *Op) RaftApplyResult {
 		// update session map
 		// FIXME(zhr): maybe need check whether current seqNumber is up-to-date
 		kv.mu.Lock()
-		result.Err = None
-		// kv.debug(fmt.Sprintf("[operationHandler] get result success, result: %+v\n", result))
-		kv.sessionMap[op.ClerkId] = op.SeqNumber
+		// kv.debug(fmt.Sprintf("[operationHandler] get result success, result: %+v, op: %+v", result, *op))
+		if result.Term != term {
+			// kv.debug(fmt.Sprintf("[operationHandler] term is out of date"))
+			result.Err = OutOfDateErr
+		} else {
+			result.Err = None
+		}
 		kv.mu.Unlock()
 		return result
 	case <-time.After(RaftTimeOut):
 		result.Err = TimeoutErr
 	}
+	kv.mu.Lock()
+	delete(kv.replyChannels, index)
+	kv.mu.Unlock()
 	return result
 }
 
@@ -140,6 +153,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 		return
 	}
 	if args == nil && reply == nil {
+		reply.Err = ArgEmptyErr
 		return
 	}
 	if args == nil {
@@ -150,8 +164,9 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	kv.mu.Lock()
 	// check duplicated request
 	if latestSeqNumber, ok := kv.sessionMap[args.ClerkId]; ok {
-		if args.SeqNumber <= latestSeqNumber {
-			kv.mu.Unlock()
+		if args.SeqNumber < latestSeqNumber {
+			// kv.mu.Unlock()
+			reply.Err = OutOfDateErr
 			return
 		}
 	}
@@ -169,6 +184,9 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	//}
 	reply.Err = result.Err
 	reply.Value = result.Value
+	if result.Err == None {
+		kv.debug(fmt.Sprintf("[KVServer.Get] get reply %+v to op: %+v", reply, op))
+	}
 }
 
 func getOpType(name string) OpType {
@@ -191,6 +209,7 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 		return
 	}
 	if args == nil && reply == nil {
+		reply.Err = ArgEmptyErr
 		return
 	}
 	if args == nil {
@@ -201,8 +220,9 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	kv.mu.Lock()
 	// check duplicated request
 	if latestSeqNumber, ok := kv.sessionMap[args.ClerkId]; ok {
-		if args.SeqNumber <= latestSeqNumber {
-			kv.mu.Unlock()
+		if args.SeqNumber < latestSeqNumber {
+			// kv.mu.Unlock()
+			reply.Err = OutOfDateErr
 			return
 		}
 	}
@@ -218,9 +238,9 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	}
 	result := kv.operationHandler(&op)
 	reply.Err = result.Err
-	//if reply.Err == None {
-	//	kv.debug(fmt.Sprintf("[PutAppend] get %+v reply success", args))
-	//}
+	if reply.Err == None {
+		kv.debug(fmt.Sprintf("[PutAppend] get %+v reply success", args))
+	}
 }
 
 func (kv *KVServer) applier() {
@@ -231,7 +251,8 @@ func (kv *KVServer) applier() {
 				break
 			}
 			applyResult := RaftApplyResult{
-				Err: None,
+				Err:  None,
+				Term: msg.CommandTerm,
 			}
 			if msg.SnapshotValid {
 				panic("snapshot is not implemented")
@@ -239,25 +260,46 @@ func (kv *KVServer) applier() {
 				if cmd, ok := msg.Command.(Op); ok {
 					// apply to the state machine
 					kv.mu.Lock()
+					// check whether the command already been applied
+					isValid := true
+					isLast := false
+					if latestSeqNumber, ok := kv.sessionMap[cmd.ClerkId]; ok {
+						if cmd.SeqNumber <= latestSeqNumber {
+							isValid = false
+						}
+						if cmd.SeqNumber == latestSeqNumber {
+							isLast = true
+						}
+					}
 					switch cmd.Op {
 					case GetOp:
-						applyResult.Value = kv.stateMachine.get(cmd.Key)
+						if isValid || isLast {
+							applyResult.Value = kv.stateMachine.get(cmd.Key)
+						} else {
+							applyResult.Err = OutOfDateErr
+						}
 					case PutOp:
-						kv.stateMachine.put(cmd.Key, cmd.Value)
+						if isValid {
+							kv.stateMachine.put(cmd.Key, cmd.Value)
+						}
 					case AppendOp:
-						kv.stateMachine.append(cmd.Key, cmd.Value)
+						if isValid {
+							kv.stateMachine.append(cmd.Key, cmd.Value)
+						}
+					}
+					// update session map
+					if isValid {
+						kv.sessionMap[cmd.ClerkId] = cmd.SeqNumber
 					}
 					// send result to the operation handler
-					// kv.debug(fmt.Sprintf("[applier] get reply channel with id %d", msg.CommandIndex))
-					resultCh, ok := kv.replyChannels[msg.CommandIndex]
-					kv.mu.Unlock()
-					if ok {
-						//if applyResult.Err == None {
-						//	kv.debug(fmt.Sprintf("[applier] get apply result, apply result: %+v\n", applyResult))
-						//} else {
-						//	panic(fmt.Sprintf("[applier] the result err field is incorrect, %+v\n", applyResult))
-						//}
+					// check whether it is a valid leader server
+					term, isLeader := kv.rf.GetState()
+					if term == applyResult.Term && isLeader {
+						resultCh := kv.getReplyChan(msg.CommandIndex)
+						kv.mu.Unlock()
 						resultCh <- applyResult
+					} else {
+						kv.mu.Unlock()
 					}
 				}
 			}
