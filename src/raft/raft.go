@@ -46,6 +46,7 @@ type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
 	CommandIndex int
+	CommandTerm  int
 
 	// For 2D:
 	SnapshotValid bool
@@ -477,6 +478,7 @@ func (rf *Raft) handleApplyEntries() {
 			CommandValid: true,
 			Command:      entry.Data,
 			CommandIndex: entry.Index,
+			CommandTerm:  entry.Term,
 		}
 		rf.applyCh <- applyMsg
 		// rf.debug(fmt.Sprintf("[handleApplyEntries] commitIndex %d, data: %+v", applyMsg.CommandIndex, applyMsg.Command))
@@ -810,8 +812,9 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	//	rf.lastIncludedTerm, rf.lastIncludedIndex, rf.commitIndex, rf.lastApplied))
 
 	// reset the state machine using snapshot content
-	go rf.applySnapshot(args)
 	rf.mu.Unlock()
+	go rf.applySnapshot(args)
+
 }
 
 // handleInstallSnapshot responsible for sending InstallSnapshot RPC to followers and handle the response

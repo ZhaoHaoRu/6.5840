@@ -30,7 +30,7 @@ const (
 	UnKnown
 )
 
-const RaftTimeOut = 2 * time.Second
+const RaftTimeOut = 100 * time.Millisecond
 
 type Op struct {
 	// Your definitions here.
@@ -134,6 +134,7 @@ func (kv *KVServer) operationHandler(op *Op) RaftApplyResult {
 	case result = <-resultCh:
 		// update session map
 		// FIXME(zhr): maybe need check whether current seqNumber is up-to-date
+		// kv.debug(fmt.Sprintf("[operationHandler] get reply %+v to op: %+v, raft index: %d", result, op, index))
 	case <-time.After(RaftTimeOut):
 		result.Err = TimeoutErr
 	}
@@ -164,7 +165,7 @@ func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	if latestOp, ok := kv.sessionMap[args.ClerkId]; ok {
 		if args.SeqNumber < latestOp.SeqNumber {
 			kv.mu.Unlock()
-			reply.Err = None
+			reply.Err = OutOfDateErr
 			return
 		}
 	}
@@ -220,8 +221,8 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	// check duplicated request
 	if latestOp, ok := kv.sessionMap[args.ClerkId]; ok {
 		if args.SeqNumber < latestOp.SeqNumber {
-			// kv.mu.Unlock()
-			reply.Err = None
+			kv.mu.Unlock()
+			reply.Err = OutOfDateErr
 			return
 		}
 	}
