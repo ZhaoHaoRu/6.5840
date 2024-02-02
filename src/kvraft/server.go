@@ -4,6 +4,7 @@ import (
 	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raft"
+	"bytes"
 	"fmt"
 	"log"
 	"os"
@@ -52,11 +53,11 @@ type RaftApplyResult struct {
 
 // StateMachine is the backend for fault-tolerant kv
 type StateMachine struct {
-	storage map[string]string
+	Storage map[string]string
 }
 
 func (sm *StateMachine) get(key string) string {
-	result, ok := sm.storage[key]
+	result, ok := sm.Storage[key]
 	// debug(fmt.Sprintf("[StateMachine.get] Key:%+v, value:%+v", key, result))
 	if ok {
 		return result
@@ -65,12 +66,12 @@ func (sm *StateMachine) get(key string) string {
 }
 
 func (sm *StateMachine) put(key string, value string) {
-	sm.storage[key] = value
+	sm.Storage[key] = value
 	// debug(fmt.Sprintf("[StateMachine.put] Key:%+v, value:%+v", key, value))
 }
 
 func (sm *StateMachine) append(key string, value string) {
-	curValue, _ := sm.storage[key]
+	curValue, _ := sm.Storage[key]
 	curValue += value
 	sm.put(key, curValue)
 }
@@ -89,6 +90,8 @@ type KVServer struct {
 	// sessionMap record clerk's corresponding latest seq number
 	sessionMap    map[int64]Op
 	replyChannels map[int]chan RaftApplyResult
+	// lastApplied indicating the last included index for snapshot
+	lastApplied int
 }
 
 func (kv *KVServer) debug(message string) {
@@ -99,11 +102,11 @@ func (kv *KVServer) debug(message string) {
 
 func (kv *KVServer) getReplyChan(index int) chan RaftApplyResult {
 	resultCh, ok := kv.replyChannels[index]
-	// NOTE(zhr): there might be two requests with the same index, let the preceding one fail
 	if !ok {
 		kv.replyChannels[index] = make(chan RaftApplyResult)
 	} else {
 		// kv.debug("out of date channel")
+		// NOTE(zhr): there might be two requests with the same index, let the preceding one fail
 		resultCh <- RaftApplyResult{
 			Err: OutOfDateErr,
 		}
@@ -133,7 +136,6 @@ func (kv *KVServer) operationHandler(op *Op) RaftApplyResult {
 	select {
 	case result = <-resultCh:
 		// update session map
-		// FIXME(zhr): maybe need check whether current seqNumber is up-to-date
 		// kv.debug(fmt.Sprintf("[operationHandler] get reply %+v to op: %+v, raft index: %d", result, op, index))
 	case <-time.After(RaftTimeOut):
 		result.Err = TimeoutErr
@@ -243,6 +245,37 @@ func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	//}
 }
 
+func (kv *KVServer) needSnapshot() bool {
+	if kv.maxraftstate == -1 {
+		return false
+	}
+	curSize := kv.rf.GetStateSize()
+	upperBound := 0.8 * float64(kv.maxraftstate)
+	// kv.debug(fmt.Sprintf("[needSnapshot] cur size: %d, upper bound: %d", curSize, int(upperBound)))
+	return curSize >= int(upperBound)
+}
+
+func (kv *KVServer) generateSnapshot() []byte {
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	_ = e.Encode(*kv.stateMachine)
+	_ = e.Encode(kv.sessionMap)
+	return w.Bytes()
+}
+
+func (kv *KVServer) applySnapshot(data []byte) {
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var newStateMachine StateMachine
+	var newSessionMap map[int64]Op
+	if d.Decode(&newStateMachine) != nil || d.Decode(&newSessionMap) != nil {
+		return
+	}
+	kv.stateMachine = &newStateMachine
+	kv.sessionMap = newSessionMap
+	// kv.debug(fmt.Sprintf("[applySnapshot] apply snapshot, stateMachine storage: %+v, sessionMap: %+v\n", kv.stateMachine.Storage, kv.sessionMap))
+}
+
 func (kv *KVServer) applier() {
 	for !kv.killed() {
 		select {
@@ -255,7 +288,15 @@ func (kv *KVServer) applier() {
 				Term: msg.CommandTerm,
 			}
 			if msg.SnapshotValid {
-				panic("snapshot is not implemented")
+				kv.mu.Lock()
+				// the snapshot is more up-to-date
+				if msg.SnapshotIndex > kv.lastApplied {
+					// kv.debug("begin to apply snapshot")
+					// apply the snapshot
+					kv.applySnapshot(msg.Snapshot)
+					kv.lastApplied = msg.SnapshotIndex
+				}
+				kv.mu.Unlock()
 			} else if msg.CommandValid {
 				if cmd, ok := msg.Command.(Op); ok {
 					// apply to the state machine
@@ -296,6 +337,11 @@ func (kv *KVServer) applier() {
 					if isValid {
 						kv.sessionMap[cmd.ClerkId] = cmd
 					}
+					// update last applied
+					if msg.CommandIndex > kv.lastApplied {
+						kv.lastApplied = msg.CommandIndex
+					}
+
 					// send result to the operation handler
 					// check whether it is a valid leader server
 					term, isLeader := kv.rf.GetState()
@@ -303,9 +349,16 @@ func (kv *KVServer) applier() {
 						resultCh := kv.replyChannels[msg.CommandIndex]
 						kv.mu.Unlock()
 						resultCh <- applyResult
-					} else {
-						kv.mu.Unlock()
+						kv.mu.Lock()
 					}
+
+					// check whether need to take snapshot
+					if kv.needSnapshot() {
+						// kv.debug("[applier] need to take snapshot")
+						snapshot := kv.generateSnapshot()
+						kv.rf.Snapshot(kv.lastApplied, snapshot)
+					}
+					kv.mu.Unlock()
 				}
 			}
 		}
@@ -359,9 +412,18 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	// You may need initialization code here.
 	kv.stateMachine = &StateMachine{
-		storage: make(map[string]string),
+		Storage: make(map[string]string),
 	}
+
 	kv.sessionMap = make(map[int64]Op)
+	kv.lastApplied = 0
+
+	// When a kvserver server restarts, it should read the snapshot from persister and restore its state from the snapshot.
+	if kv.maxraftstate != -1 {
+		kv.applySnapshot(kv.rf.GetLastSnapshot())
+		kv.lastApplied = kv.rf.GetLastIndex()
+	}
+
 	kv.replyChannels = make(map[int]chan RaftApplyResult)
 	go kv.applier()
 	return kv

@@ -119,6 +119,26 @@ func (rf *Raft) GetState() (int, bool) {
 	return term, isleader
 }
 
+func (rf *Raft) GetStateSize() int {
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
+	stateSize := rf.persister.RaftStateSize()
+	return stateSize
+}
+
+func (rf *Raft) GetLastSnapshot() []byte {
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
+	snapshot := rf.persister.ReadSnapshot()
+	return snapshot
+}
+
+func (rf *Raft) GetLastIndex() int {
+	rf.mu.RLock()
+	defer rf.mu.RUnlock()
+	return rf.lastIncludedIndex
+}
+
 // save Raft's persistent state to stable storage,
 // where it can later be retrieved after a crash and restart.
 // see paper's Figure 2 for a description of what should be persistent.
@@ -142,6 +162,7 @@ func (rf *Raft) persist() {
 func (rf *Raft) persistWithSnapshot(snapshot []byte) {
 	raftState := rf.encodePersistState()
 	rf.persister.Save(raftState, snapshot)
+	//rf.debug("[persistWithSnapshot] curSize:")
 }
 
 func (rf *Raft) encodePersistState() []byte {
@@ -470,10 +491,26 @@ func (rf *Raft) handleApplyEntries() {
 	// increase lastApplied
 	rf.lastApplied += 1
 	entriesForApply := make([]LogEntry, commitIndex-rf.lastApplied+1)
+	if rf.getIndexPos(rf.lastApplied) == -1 {
+		rf.debug(fmt.Sprintf("[handleApplyEntries] rf.lastApplied %d, rf.commitIndex: %d, logs: %+v", rf.lastApplied, rf.commitIndex, rf.log))
+		if rf.lastIncludedIndex >= rf.lastApplied {
+			rf.lastApplied = rf.lastIncludedIndex + 1
+			if rf.lastApplied >= rf.commitIndex {
+				rf.mu.Unlock()
+				return
+			}
+			entriesForApply = make([]LogEntry, commitIndex-rf.lastApplied+1)
+		} else {
+			panic("[handleApplyEntries] the last applied Index is not correct")
+		}
+	}
 	copy(entriesForApply, rf.log[rf.getIndexPos(rf.lastApplied):rf.getIndexPos(rf.commitIndex)+1])
 	// rf.debug(fmt.Sprintf("[handleApplyEntries] log for apply: %+v\n", entriesForApply))
 	rf.mu.Unlock()
 	for _, entry := range entriesForApply {
+		if entry.Index == 0 {
+			continue
+		}
 		applyMsg := ApplyMsg{
 			CommandValid: true,
 			Command:      entry.Data,
@@ -486,7 +523,9 @@ func (rf *Raft) handleApplyEntries() {
 
 	rf.mu.Lock()
 	// update lastApplied
-	rf.lastApplied = commitIndex
+	if commitIndex > rf.lastApplied {
+		rf.lastApplied = commitIndex
+	}
 	rf.mu.Unlock()
 }
 
@@ -803,8 +842,8 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	if args.LastIncludedIndex > rf.commitIndex {
 		rf.commitIndex = args.LastIncludedIndex
 	}
-	if args.LastIncludedIndex > rf.lastApplied {
-		rf.lastApplied = args.LastIncludedIndex
+	if rf.lastIncludedIndex > rf.lastApplied {
+		rf.lastApplied = rf.lastIncludedIndex
 	}
 	rf.persistWithSnapshot(args.Data)
 	// rf.debug(fmt.Sprintf("[InstallSnapshot] after install snapshot, lastIncludedTerm: %d, "+
