@@ -57,7 +57,7 @@ func (ck *Clerk) Query(num int) Config {
 	args.SeqNumber = ck.seqNumber
 	ck.seqNumber += 1
 
-	debug(fmt.Sprintf("[Clerk.Query] args: %+v", args))
+	// debug(fmt.Sprintf("[Clerk.Query] args: %+v", args))
 	// try the known leader first
 	if ck.leaderId != -1 && ck.servers[ck.leaderId] != nil {
 		var reply QueryReply
@@ -88,7 +88,7 @@ func (ck *Clerk) Join(servers map[int][]string) {
 	args.SeqNumber = ck.seqNumber
 	ck.seqNumber += 1
 
-	debug(fmt.Sprintf("[Clerk.Join] args: %+v", args))
+	// debug(fmt.Sprintf("[Clerk.Join] args: %+v", args))
 	// try the known leader first
 	if ck.leaderId != -1 && ck.servers[ck.leaderId] != nil {
 		var reply JoinReply
@@ -119,7 +119,7 @@ func (ck *Clerk) Leave(gids []int) {
 	args.SeqNumber = ck.seqNumber
 	ck.seqNumber += 1
 
-	debug(fmt.Sprintf("[Clerk.Leave] args: %+v", args))
+	// debug(fmt.Sprintf("[Clerk.Leave] args: %+v", args))
 	// try the known leader first
 	if ck.leaderId != -1 && ck.servers[ck.leaderId] != nil {
 		var reply LeaveReply
@@ -151,7 +151,7 @@ func (ck *Clerk) Move(shard int, gid int) {
 	args.SeqNumber = ck.seqNumber
 	ck.seqNumber += 1
 
-	debug(fmt.Sprintf("[Clerk.Move] args: %+v", args))
+	// debug(fmt.Sprintf("[Clerk.Move] args: %+v", args))
 	// try the known leader first
 	if ck.leaderId != -1 && ck.servers[ck.leaderId] != nil {
 		var reply MoveReply

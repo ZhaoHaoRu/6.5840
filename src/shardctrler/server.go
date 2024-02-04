@@ -84,13 +84,17 @@ func (sc *ShardCtrler) operationHandler(op *Op) RaftApplyResult {
 		return result
 	}
 
+	sc.mu.Lock()
 	notifyCh := sc.getNotifyChan(index)
+	sc.mu.Unlock()
 	select {
 	case result = <-notifyCh:
 	case <-time.After(RaftTimeOut):
 		result.Err = TimeoutErr
 	}
+	sc.mu.Lock()
 	delete(sc.notifyChannels, index)
+	sc.mu.Unlock()
 	return result
 }
 
@@ -220,13 +224,16 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 	reply.WrongLeader = false
 	reply.Err = OK
 
+	sc.mu.Lock()
 	// check duplicated request
 	if lastOp, ok := sc.sessionMap[args.ClerkId]; ok {
 		if args.SeqNumber <= lastOp.SeqNumber {
 			reply.Err = OutOfDateErr
+			sc.mu.Unlock()
 			return
 		}
 	}
+	sc.mu.Unlock()
 
 	// generate Op for raft
 	op := Op{
@@ -240,9 +247,9 @@ func (sc *ShardCtrler) Join(args *JoinArgs, reply *JoinReply) {
 		reply.WrongLeader = true
 	}
 	reply.Err = processResult.Err
-	if !reply.WrongLeader {
-		sc.debug(fmt.Sprintf("[Join] reply: %+v, config: %+v", reply, sc.configs))
-	}
+	//if !reply.WrongLeader {
+	//	sc.debug(fmt.Sprintf("[Join] reply: %+v, config: %+v", reply, sc.configs))
+	//}
 }
 
 func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
@@ -251,13 +258,16 @@ func (sc *ShardCtrler) Leave(args *LeaveArgs, reply *LeaveReply) {
 	reply.WrongLeader = false
 	reply.Err = OK
 
+	sc.mu.Lock()
 	// check duplicated request
 	if lastOp, ok := sc.sessionMap[args.ClerkId]; ok {
 		if args.SeqNumber <= lastOp.SeqNumber {
 			reply.Err = OutOfDateErr
+			sc.mu.Unlock()
 			return
 		}
 	}
+	sc.mu.Unlock()
 
 	// generate Op for raft
 	op := Op{
@@ -279,13 +289,16 @@ func (sc *ShardCtrler) Move(args *MoveArgs, reply *MoveReply) {
 	reply.WrongLeader = false
 	reply.Err = OK
 
+	sc.mu.Lock()
 	// check duplicated request
 	if lastOp, ok := sc.sessionMap[args.ClerkId]; ok {
 		if args.SeqNumber <= lastOp.SeqNumber {
 			reply.Err = OutOfDateErr
+			sc.mu.Unlock()
 			return
 		}
 	}
+	sc.mu.Unlock()
 
 	// generate Op for raft
 	op := Op{
@@ -308,13 +321,16 @@ func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 	reply.WrongLeader = false
 	reply.Err = OK
 
+	sc.mu.Lock()
 	// check duplicated request
 	if lastOp, ok := sc.sessionMap[args.ClerkId]; ok {
 		if args.SeqNumber <= lastOp.SeqNumber {
 			reply.Err = OutOfDateErr
+			sc.mu.Unlock()
 			return
 		}
 	}
+	sc.mu.Unlock()
 
 	// generate Op for raft
 	op := Op{
@@ -329,9 +345,9 @@ func (sc *ShardCtrler) Query(args *QueryArgs, reply *QueryReply) {
 	}
 	reply.Err = processResult.Err
 	reply.Config = processResult.Config
-	if !reply.WrongLeader {
-		sc.debug(fmt.Sprintf("[Query] reply: %+v", reply))
-	}
+	//if !reply.WrongLeader {
+	//	sc.debug(fmt.Sprintf("[Query] reply: %+v", reply))
+	//}
 }
 
 func (sc *ShardCtrler) applier() {
@@ -346,6 +362,7 @@ func (sc *ShardCtrler) applier() {
 			}
 			if msg.CommandValid {
 				if cmd, ok := msg.Command.(Op); ok {
+					sc.mu.Lock()
 					// check whether the command already been applied
 					isValid := true
 					isLast := false
@@ -387,7 +404,10 @@ func (sc *ShardCtrler) applier() {
 					term, isLeader := sc.rf.GetState()
 					if term == msg.CommandTerm && isLeader {
 						notifyCh := sc.notifyChannels[msg.CommandIndex]
+						sc.mu.Unlock()
 						notifyCh <- applyResult
+					} else {
+						sc.mu.Unlock()
 					}
 				}
 			}
