@@ -29,13 +29,18 @@ type Config struct {
 }
 
 const (
-	OK = "OK"
+	OK               = "OK"
+	OutOfDateErr     = "The request is out of date"
+	NotLeaderErr     = "Current raft peer is not a leader"
+	TimeoutErr   Err = "Operation timeout"
 )
 
 type Err string
 
 type JoinArgs struct {
-	Servers map[int][]string // new GID -> servers mappings
+	Servers   map[int][]string // new GID -> servers mappings
+	ClerkId   int64
+	SeqNumber int
 }
 
 type JoinReply struct {
@@ -44,7 +49,9 @@ type JoinReply struct {
 }
 
 type LeaveArgs struct {
-	GIDs []int
+	GIDs      []int
+	ClerkId   int64
+	SeqNumber int
 }
 
 type LeaveReply struct {
@@ -53,17 +60,23 @@ type LeaveReply struct {
 }
 
 type MoveArgs struct {
-	Shard int
-	GID   int
+	Shard     int
+	GID       int
+	ClerkId   int64
+	SeqNumber int
 }
 
 type MoveReply struct {
 	WrongLeader bool
 	Err         Err
+	ClerkId     int64
+	SeqNumber   int
 }
 
 type QueryArgs struct {
-	Num int // desired config number
+	Num       int // desired config number
+	ClerkId   int64
+	SeqNumber int
 }
 
 type QueryReply struct {
