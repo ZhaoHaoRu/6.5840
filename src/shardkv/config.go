@@ -349,7 +349,7 @@ func make_config(t *testing.T, n int, unreliable bool, maxraftstate int) *config
 	cfg.net = labrpc.MakeNetwork()
 	cfg.start = time.Now()
 
-	// controler
+	// controller
 	cfg.nctrlers = 3
 	cfg.ctrlerservers = make([]*shardctrler.ShardCtrler, cfg.nctrlers)
 	for i := 0; i < cfg.nctrlers; i++ {

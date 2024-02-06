@@ -28,6 +28,21 @@ type Config struct {
 	Groups map[int][]string // gid -> servers[]
 }
 
+func (cf *Config) Copy() Config {
+	newConfig := Config{
+		Num:    cf.Num,
+		Shards: cf.Shards,
+		Groups: map[int][]string{},
+	}
+	for key, value := range cf.Groups {
+		newConfig.Groups[key] = make([]string, len(value))
+		for i, server := range value {
+			newConfig.Groups[key][i] = server
+		}
+	}
+	return newConfig
+}
+
 const (
 	OK               = "OK"
 	OutOfDateErr     = "The request is out of date"

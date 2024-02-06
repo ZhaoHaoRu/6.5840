@@ -62,7 +62,7 @@ func TestStaticShards(t *testing.T) {
 			}
 		}(xi)
 	}
-
+	fmt.Printf("line 67\n")
 	// wait a bit, only about half the Gets should succeed.
 	ndone := 0
 	done := false
@@ -78,17 +78,18 @@ func TestStaticShards(t *testing.T) {
 			break
 		}
 	}
-
+	fmt.Printf("line 83\n")
 	if ndone != 5 {
 		t.Fatalf("expected 5 completions with one shard dead; got %v\n", ndone)
 	}
-
+	fmt.Printf("line 87\n")
 	// bring the crashed shard/group back to life.
 	cfg.StartGroup(1)
+	fmt.Printf("line 90\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
-
+	fmt.Printf("line 94\n")
 	fmt.Printf("  ... Passed\n")
 }
 
@@ -101,7 +102,7 @@ func TestJoinLeave(t *testing.T) {
 	ck := cfg.makeClient()
 
 	cfg.join(0)
-
+	fmt.Printf("line 106\n")
 	n := 10
 	ka := make([]string, n)
 	va := make([]string, n)
@@ -110,11 +111,14 @@ func TestJoinLeave(t *testing.T) {
 		va[i] = randstring(5)
 		ck.Put(ka[i], va[i])
 	}
+	fmt.Printf("line 114\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
+	fmt.Printf("line 118\n")
 
 	cfg.join(1)
+	fmt.Printf("line 121\n")
 
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
@@ -122,8 +126,9 @@ func TestJoinLeave(t *testing.T) {
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-
+	fmt.Printf("line 129\n")
 	cfg.leave(0)
+	fmt.Printf("line 131\n")
 
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
@@ -131,17 +136,17 @@ func TestJoinLeave(t *testing.T) {
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-
+	fmt.Printf("line 139\n")
 	// allow time for shards to transfer.
 	time.Sleep(1 * time.Second)
 
 	cfg.checklogs()
 	cfg.ShutdownGroup(0)
-
+	fmt.Printf("line 145\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
-
+	fmt.Printf("line 149\n")
 	fmt.Printf("  ... Passed\n")
 }
 
@@ -811,8 +816,8 @@ func TestChallenge1Delete(t *testing.T) {
 }
 
 // optional test to see whether servers can handle
-// shards that are not affected by a config change
-// while the config change is underway
+// shards that are not affected by a curConfig change
+// while the curConfig change is underway
 func TestChallenge2Unaffected(t *testing.T) {
 	fmt.Printf("Test: unaffected shard access (challenge 2) ...\n")
 
@@ -844,8 +849,8 @@ func TestChallenge2Unaffected(t *testing.T) {
 		owned[s] = gid == cfg.groups[1].gid
 	}
 
-	// Wait for migration to new config to complete, and for clients to
-	// start using this updated config. Gets to any key k such that
+	// Wait for migration to new curConfig to complete, and for clients to
+	// start using this updated curConfig. Gets to any key k such that
 	// owned[shard(k)] == true should now be served by group 101.
 	<-time.After(1 * time.Second)
 	for i := 0; i < n; i++ {
@@ -862,7 +867,7 @@ func TestChallenge2Unaffected(t *testing.T) {
 	// 101 doesn't get a chance to migrate things previously owned by 100
 	cfg.leave(0)
 
-	// Wait to make sure clients see new config
+	// Wait to make sure clients see new curConfig
 	<-time.After(1 * time.Second)
 
 	// And finally: check that gets/puts for 101-owned keys still complete
@@ -879,7 +884,7 @@ func TestChallenge2Unaffected(t *testing.T) {
 }
 
 // optional test to see whether servers can handle operations on shards that
-// have been received as a part of a config migration when the entire migration
+// have been received as a part of a curConfig migration when the entire migration
 // has not yet completed.
 func TestChallenge2Partial(t *testing.T) {
 	fmt.Printf("Test: partial migration shard access (challenge 2) ...\n")

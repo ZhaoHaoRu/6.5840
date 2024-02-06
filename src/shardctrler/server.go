@@ -19,7 +19,7 @@ const (
 	QueryOp = "Query"
 )
 
-const RaftTimeOut = 5000 * time.Millisecond
+const RaftTimeOut = 500 * time.Millisecond
 
 type RaftApplyResult struct {
 	Err    Err
