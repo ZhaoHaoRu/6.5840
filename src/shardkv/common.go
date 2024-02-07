@@ -63,3 +63,12 @@ type ShardMigrationReply struct {
 	Num    int
 	Shards map[int]*Shard
 }
+
+type ShardReclaimArgs struct {
+	Num      int
+	ShardIds []int
+}
+
+type ShardReclaimReply struct {
+	Err Err
+}

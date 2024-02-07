@@ -84,7 +84,7 @@ func (ck *Clerk) Get(key string) string {
 	ck.seqNumber += 1
 
 	i := 0
-
+	debug(fmt.Sprintf("[Clerk.Get] args: %+v, curConfig: %+v", args, ck.config))
 	for {
 		shard := key2shard(key)
 		args.ShardId = shard
@@ -99,7 +99,7 @@ func (ck *Clerk) Get(key string) string {
 				srv := ck.make_end(servers[si])
 				var reply GetReply
 				ok := srv.Call("ShardKV.Get", &args, &reply)
-				debug(fmt.Sprintf("[Clerk.Get] result: %+v, args: %+v, gid: %+v", reply, args, gid))
+				debug(fmt.Sprintf("[Clerk.Get] result: %+v, args: %+v, gid: %+v, server: %+v", reply, args, gid, servers[si]))
 				if ok && (reply.Err == OK || reply.Err == ErrNoKey || reply.Err == ErrOutOfDate) {
 					return reply.Value
 				}
@@ -130,13 +130,13 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 	ck.seqNumber += 1
 
 	i := 0
-
+	// debug(fmt.Sprintf("[Clerk.PutAppend] args: %+v, curConfig: %+v", args, ck.config))
 	for {
 		shard := key2shard(key)
 		args.ShardId = shard
 		gid := ck.config.Shards[shard]
 		if i == 0 {
-			debug(fmt.Sprintf("[Clerk.PutAppend] args: %+v, gid: %d", args, gid))
+			debug(fmt.Sprintf("[Clerk.PutAppend] args: %+v, gid: %d, curConfig: %+v", args, gid, ck.config))
 			i = 1
 		}
 		if servers, ok := ck.config.Groups[gid]; ok {
@@ -144,7 +144,7 @@ func (ck *Clerk) PutAppend(key string, value string, op string) {
 				srv := ck.make_end(servers[si])
 				var reply PutAppendReply
 				ok := srv.Call("ShardKV.PutAppend", &args, &reply)
-				debug(fmt.Sprintf("[Clerk.PutAppend] result: %+v, args: %+v", reply, args))
+				debug(fmt.Sprintf("[Clerk.PutAppend] result: %+v, args: %+v, gid: %d, server: %+v", reply, args, gid, servers[si]))
 				if ok && (reply.Err == OK || reply.Err == ErrOutOfDate) {
 					return
 				}

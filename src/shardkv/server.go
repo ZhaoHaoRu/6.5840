@@ -19,6 +19,7 @@ const (
 	AppendOp = "Append"
 	Config   = "Config"
 	Migrate  = "Migrate"
+	Reclaim  = "Reclaim"
 	UnKnown  = "UnKnown"
 )
 
@@ -46,6 +47,13 @@ type ShardOp struct {
 	Shards map[int]*Shard
 	Op     string
 }
+
+type ReclaimOp struct {
+	Num      int
+	ShardIds []int
+	Op       string
+}
+
 type RaftApplyResult struct {
 	Err   Err
 	Value string
@@ -75,7 +83,7 @@ type Shard struct {
 
 func (sd *Shard) deepCopy() *Shard {
 	copySd := &Shard{
-		ShardStatus: sd.ShardStatus, // 假设 ShardStatus 是一个不含有引用类型字段的结构体，可以直接赋值
+		ShardStatus: sd.ShardStatus,
 	}
 
 	if sd.Storage != nil {
@@ -128,7 +136,7 @@ type ShardKV struct {
 
 func (kv *ShardKV) debug(message string) {
 	pid := os.Getpid()
-	logMessage := fmt.Sprintf("[pid %d] [ServerId %d] %s\n", pid, kv.me, message)
+	logMessage := fmt.Sprintf("[pid %d] [ServerId %d] [GID %d] %s\n", pid, kv.me, kv.gid, message)
 	fmt.Printf(logMessage)
 }
 
@@ -156,13 +164,17 @@ func (kv *ShardKV) operationHandler(op interface{}) RaftApplyResult {
 		return result
 	}
 
+	kv.mu.Lock()
 	notifyCh := kv.getNotifyChan(index)
+	kv.mu.Unlock()
 	select {
 	case result = <-notifyCh:
 	case <-time.After(RaftTimeOut):
 		result.Err = ErrTimeout
 	}
+	kv.mu.Lock()
 	delete(kv.notifyChannels, index)
+	kv.mu.Unlock()
 	return result
 }
 
@@ -180,21 +192,22 @@ func (kv *ShardKV) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
 	reply.Err = OK
 
-	kv.debug(fmt.Sprintf("[ShardKV.Get] args: %+v", args))
+	// kv.debug(fmt.Sprintf("[ShardKV.Get] args: %+v", args))
+	kv.mu.Lock()
 	// check shard info
 	if !kv.checkShardMatch(args.ShardId) {
 		reply.Err = ErrWrongGroup
-		kv.debug(fmt.Sprintf("[ShardKV.Get] wrong group, args: %+v, reply: %+v", args, reply))
+		// kv.debug(fmt.Sprintf("[ShardKV.Get] wrong group, args: %+v, reply: %+v", args, reply))
+		kv.mu.Unlock()
 		return
 	}
 
-	kv.mu.Lock()
 	// check duplicated request
 	shard := kv.stateMachine[args.ShardId]
 	if lastOp, ok := shard.SessionMap[args.ClerkId]; ok {
 		if args.SeqNumber < lastOp.SeqNumber {
 			reply.Err = ErrOutOfDate
-			kv.debug(fmt.Sprintf("[ShardKV.Get] request out of date, args: %+v, lastOp: %+v", args, lastOp))
+			// kv.debug(fmt.Sprintf("[ShardKV.Get] request out of date, args: %+v, lastOp: %+v", args, lastOp))
 			kv.mu.Unlock()
 			return
 		}
@@ -222,12 +235,13 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 	reply.Err = OK
 
 	// check shard info
+	kv.mu.Lock()
 	if !kv.checkShardMatch(args.ShardId) {
 		reply.Err = ErrWrongGroup
+		kv.mu.Unlock()
 		return
 	}
 
-	kv.mu.Lock()
 	// check duplicated request
 	shard := kv.stateMachine[args.ShardId]
 	if lastOp, ok := shard.SessionMap[args.ClerkId]; ok {
@@ -259,17 +273,20 @@ func (kv *ShardKV) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
 func (kv *ShardKV) MigrateShard(args *ShardMigrationArgs, reply *ShardMigrationReply) {
 	reply.Err = OK
 
-	kv.mu.Lock()
-	defer kv.mu.Unlock()
+	// kv.debug(fmt.Sprintf("[MigrateShard] begin, args: %+v", args))
 	// only the leader can respond to shard migration
 	if _, isLeader := kv.rf.GetState(); !isLeader {
 		reply.Err = ErrWrongLeader
 		return
 	}
 
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
 	// only process the corresponding configNum request
 	if args.Num > kv.curConfig.Num {
 		reply.Err = ErrNotReady
+		kv.debug(fmt.Sprintf("[MigrateShard] arg too new, configNum: %d, kv.curConfig: %+v", args.Num, kv.curConfig))
 		return
 	}
 	if args.Num < kv.curConfig.Num {
@@ -283,6 +300,41 @@ func (kv *ShardKV) MigrateShard(args *ShardMigrationArgs, reply *ShardMigrationR
 	for _, shardId := range args.ShardIds {
 		reply.Shards[shardId] = kv.stateMachine[shardId].deepCopy()
 	}
+	// kv.debug(fmt.Sprintf("[MigrateShard] get reply, reply: %+v, args: %+v", reply, args))
+}
+
+func (kv *ShardKV) ReclaimShard(args *ShardReclaimArgs, reply *ShardReclaimReply) {
+	reply.Err = OK
+
+	// only the leader can respond to shard deletion
+	if _, isLeader := kv.rf.GetState(); !isLeader {
+		reply.Err = ErrWrongLeader
+		return
+	}
+	kv.mu.Lock()
+	// only process the corresponding configNum request
+	if args.Num > kv.curConfig.Num {
+		reply.Err = OK
+		kv.debug(fmt.Sprintf("[ReclaimShard] the arg's config number is too new %d, cur config num: %d", args.Num, kv.curConfig.Num))
+		kv.mu.Unlock()
+		return
+	}
+	if args.Num < kv.curConfig.Num {
+		reply.Err = ErrOutOfDate
+		kv.debug(fmt.Sprintf("[ReclaimShard] the arg's config number is out of date %d, cur config num: %d", args.Num, kv.curConfig.Num))
+		kv.mu.Unlock()
+		return
+	}
+
+	// generate Op
+	op := ReclaimOp{
+		Num:      args.Num,
+		ShardIds: args.ShardIds,
+		Op:       Reclaim,
+	}
+	kv.mu.Unlock()
+	result := kv.operationHandler(op)
+	reply.Err = result.Err
 }
 
 func (kv *ShardKV) applyOperation(cmd *Op, result *RaftApplyResult) {
@@ -295,10 +347,8 @@ func (kv *ShardKV) applyOperation(cmd *Op, result *RaftApplyResult) {
 	} else {
 		shard = kv.stateMachine[cmd.ShardId]
 		if lastOp, ok := shard.SessionMap[cmd.ClerkId]; ok {
-			if cmd.SeqNumber < lastOp.SeqNumber {
+			if cmd.SeqNumber <= lastOp.SeqNumber {
 				isValid = false
-			} else {
-				kv.debug(fmt.Sprintf("[applyOperation] lastOp: %+v, curOp: %+v", lastOp, cmd))
 			}
 			if cmd.SeqNumber == lastOp.SeqNumber && cmd.Op == lastOp.Op && cmd.Key == lastOp.Key {
 				isLast = true
@@ -352,10 +402,11 @@ func (kv *ShardKV) applyConfiguration(newConfig *shardctrler.Config, result *Raf
 			result.Err = OK
 			kv.lastConfig = kv.curConfig
 			kv.curConfig = *newConfig
-			kv.debug(fmt.Sprintf("[applyConfiguration] kv.curConfig: %+v", kv.curConfig))
+			statusMap := make(map[int]ShardStatus)
 			for i, shard := range kv.stateMachine {
-				kv.debug(fmt.Sprintf("[applyConfiguration] shard %d: %+v", i, shard))
+				statusMap[i] = shard.ShardStatus
 			}
+			kv.debug(fmt.Sprintf("[applyConfiguration] kv.curConfig: %+v, status: %+v", kv.curConfig, statusMap))
 			return
 		}
 
@@ -390,10 +441,11 @@ func (kv *ShardKV) applyConfiguration(newConfig *shardctrler.Config, result *Raf
 		kv.lastConfig = oldConfig
 		kv.curConfig = *newConfig
 
-		kv.debug(fmt.Sprintf("[applyConfiguration] kv.curConfig: %+v, kv.lastConfig: %+v", kv.curConfig, kv.lastConfig))
+		statusMap := make(map[int]ShardStatus)
 		for i, shard := range kv.stateMachine {
-			kv.debug(fmt.Sprintf("[applyConfiguration] shard %d: %+v", i, shard))
+			statusMap[i] = shard.ShardStatus
 		}
+		kv.debug(fmt.Sprintf("[applyConfiguration] kv.curConfig: %+v, status: %+v", kv.curConfig, statusMap))
 
 		result.Err = OK
 	} else {
@@ -403,10 +455,12 @@ func (kv *ShardKV) applyConfiguration(newConfig *shardctrler.Config, result *Raf
 
 func (kv *ShardKV) applyShardMigration(shardOp *ShardOp, result *RaftApplyResult) {
 	if shardOp.Num != kv.curConfig.Num {
+		kv.debug(fmt.Sprintf("[applyShardMigration] the reclaim config num is incorrect, args: %+v, curConfig: %+v", shardOp, kv.curConfig))
 		result.Err = ErrOutOfDate
 		return
 	}
 
+	kv.debug(fmt.Sprintf("[applyShardMigration] kv.curConfig: %+v", kv.curConfig))
 	for shardId, shard := range shardOp.Shards {
 		if kv.stateMachine[shardId].ShardStatus != Pulling {
 			kv.debug(fmt.Sprintf("[applyShardMigration] the shard %d status %d is unexpected", shardId, kv.stateMachine[shardId].ShardStatus))
@@ -427,11 +481,32 @@ func (kv *ShardKV) applyShardMigration(shardOp *ShardOp, result *RaftApplyResult
 				kv.stateMachine[shardId].SessionMap[clerkId] = op
 			}
 		}
+		kv.debug(fmt.Sprintf("[applyShardMigration] new shard %d state: %+v", shardId, shard))
 	}
-	kv.debug(fmt.Sprintf("[applyShardMigration] kv.curConfig: %+v", kv.curConfig))
-	for i, shard := range kv.stateMachine {
-		kv.debug(fmt.Sprintf("[applyShardMigration] shard %d: %+v", i, shard))
+
+	result.Err = OK
+}
+
+func (kv *ShardKV) applyShardReclaim(reclaimOp *ReclaimOp, result *RaftApplyResult) {
+	if reclaimOp.Num != kv.curConfig.Num {
+		kv.debug(fmt.Sprintf("[applyShardReclaim] the reclaim config num is incorrect: %+v, curConfig: %+v", reclaimOp, kv.curConfig))
+		result.Err = ErrOutOfDate
+		return
 	}
+
+	kv.debug(fmt.Sprintf("[applyShardReclaim] kv.curConfig: %+v, args: %+v", kv.curConfig, reclaimOp))
+	// update the status
+	for _, shardId := range reclaimOp.ShardIds {
+		if kv.stateMachine[shardId].ShardStatus == Waiting {
+			kv.stateMachine[shardId].ShardStatus = Serving
+		} else if kv.stateMachine[shardId].ShardStatus == Erasing {
+			kv.stateMachine[shardId].ShardStatus = Invalid
+		} else {
+			kv.debug(fmt.Sprintf("[applyShardReclaim] the shard status is in incorrect: %+v", kv.stateMachine[shardId]))
+		}
+		kv.debug(fmt.Sprintf("[applyShardReclaim] shard %d: %+v", shardId, kv.stateMachine[shardId]))
+	}
+
 	result.Err = OK
 }
 
@@ -444,10 +519,13 @@ func (kv *ShardKV) needSnapshot() bool {
 	return curSize >= int(upperBound)
 }
 
+// NOTE(zhr): also need to persist config
 func (kv *ShardKV) generateSnapshot() []byte {
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
 	_ = e.Encode(kv.stateMachine)
+	_ = e.Encode(kv.lastConfig)
+	_ = e.Encode(kv.curConfig)
 	return w.Bytes()
 }
 
@@ -455,10 +533,14 @@ func (kv *ShardKV) applySnapshot(data []byte) {
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
 	var newStateMachine map[int]*Shard
-	if d.Decode(&newStateMachine) != nil {
+	var lastConfig shardctrler.Config
+	var curConfig shardctrler.Config
+	if d.Decode(&newStateMachine) != nil || d.Decode(&lastConfig) != nil || d.Decode(&curConfig) != nil {
 		return
 	}
 	kv.stateMachine = newStateMachine
+	kv.lastConfig = lastConfig
+	kv.curConfig = curConfig
 }
 
 func (kv *ShardKV) applier() {
@@ -483,6 +565,8 @@ func (kv *ShardKV) applier() {
 					kv.applyConfiguration(&cmd.Config, &applyResult)
 				} else if cmd, ok := msg.Command.(ShardOp); ok {
 					kv.applyShardMigration(&cmd, &applyResult)
+				} else if cmd, ok := msg.Command.(ReclaimOp); ok {
+					kv.applyShardReclaim(&cmd, &applyResult)
 				}
 
 				// update last applied
@@ -517,9 +601,10 @@ func (kv *ShardKV) configFetcher() {
 
 		kv.mu.Lock()
 		// void unstable state being overwritten
-		for _, shard := range kv.stateMachine {
+		for shardId, shard := range kv.stateMachine {
 			if shard.ShardStatus != Invalid && shard.ShardStatus != Serving {
 				needFetch = false
+				kv.debug(fmt.Sprintf("[configFetcher] not need fetch, because shardId: %d shard: %+v, curConfig: %+v", shardId, shard, kv.curConfig))
 				break
 			}
 		}
@@ -572,6 +657,9 @@ func (kv *ShardKV) dataMigrator() {
 		kv.mu.Lock()
 		gidToShards := kv.getTargetGroups(Pulling)
 		// next round should wait for this round ended
+		if len(gidToShards) != 0 {
+			kv.debug(fmt.Sprintf("[dataMigrator] begin migration, gidToshard: %+v, curConfig: %+v", gidToShards, kv.curConfig))
+		}
 		var wg sync.WaitGroup
 		for gid, shardIds := range gidToShards {
 			wg.Add(1)
@@ -585,6 +673,7 @@ func (kv *ShardKV) dataMigrator() {
 					srv := kv.make_end(server)
 					var reply ShardMigrationReply
 					ok := srv.Call("ShardKV.MigrateShard", &shardMigrationArgs, &reply)
+					// kv.debug(fmt.Sprintf("[dataMigrator] get reply, reply: %+v, args: %+v", reply, shardMigrationArgs))
 					if ok && reply.Err == OK {
 						// apply through raft group
 						shardOp := ShardOp{
@@ -601,6 +690,46 @@ func (kv *ShardKV) dataMigrator() {
 		wg.Wait()
 		// kv.debug(fmt.Sprintf("[configFetcher] end dataMigrator"))
 		// polls roughly every 100 milliseconds
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func (kv *ShardKV) dataReclaimer() {
+	for !kv.killed() {
+		kv.mu.Lock()
+		gidToShards := kv.getTargetGroups(Waiting)
+		// next round should wait for this round ended
+		if len(gidToShards) != 0 {
+			kv.debug(fmt.Sprintf("[dataReclaimer] begin reclaim, gidToshard: %+v, curConfig: %+v", gidToShards, kv.curConfig))
+		}
+		var wg sync.WaitGroup
+		for gid, shardIds := range gidToShards {
+			wg.Add(1)
+			go func(servers []string, shardIds []int, configNum int) {
+				defer wg.Done()
+				shardReclaimArgs := ShardReclaimArgs{
+					Num:      configNum,
+					ShardIds: shardIds,
+				}
+				for _, server := range servers {
+					srv := kv.make_end(server)
+					var reply ShardReclaimReply
+					ok := srv.Call("ShardKV.ReclaimShard", &shardReclaimArgs, &reply)
+					// kv.debug(fmt.Sprintf("[dataMigrator] get reply, server: %s, reply: %+v, args: %+v", server, reply, shardReclaimArgs))
+					if ok && (reply.Err == OK || reply.Err == ErrOutOfDate) {
+						// apply through raft group
+						reclaimOp := ReclaimOp{
+							Num:      configNum,
+							ShardIds: shardIds,
+							Op:       Reclaim,
+						}
+						_ = kv.operationHandler(reclaimOp)
+					}
+				}
+			}(kv.lastConfig.Groups[gid], shardIds, kv.curConfig.Num)
+		}
+		kv.mu.Unlock()
+		wg.Wait()
 		time.Sleep(100 * time.Millisecond)
 	}
 }
@@ -652,6 +781,7 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	labgob.Register(Op{})
 	labgob.Register(ConfigOp{})
 	labgob.Register(ShardOp{})
+	labgob.Register(ReclaimOp{})
 
 	kv := new(ShardKV)
 	kv.me = me
@@ -690,5 +820,6 @@ func StartServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persister,
 	go kv.applier()
 	go kv.configFetcher()
 	go kv.dataMigrator()
+	go kv.dataReclaimer()
 	return kv
 }
