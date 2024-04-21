@@ -62,7 +62,7 @@ func TestStaticShards(t *testing.T) {
 			}
 		}(xi)
 	}
-	fmt.Printf("line 67\n")
+	// fmt.Printf("line 67\n")
 	// wait a bit, only about half the Gets should succeed.
 	ndone := 0
 	done := false
@@ -78,18 +78,18 @@ func TestStaticShards(t *testing.T) {
 			break
 		}
 	}
-	fmt.Printf("line 83\n")
+	// fmt.Printf("line 83\n")
 	if ndone != 5 {
 		t.Fatalf("expected 5 completions with one shard dead; got %v\n", ndone)
 	}
-	fmt.Printf("line 87\n")
+	// fmt.Printf("line 87\n")
 	// bring the crashed shard/group back to life.
 	cfg.StartGroup(1)
-	fmt.Printf("line 90\n")
+	// fmt.Printf("line 90\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
-	fmt.Printf("line 94\n")
+	// fmt.Printf("line 94\n")
 	fmt.Printf("  ... Passed\n")
 }
 
@@ -102,7 +102,7 @@ func TestJoinLeave(t *testing.T) {
 	ck := cfg.makeClient()
 
 	cfg.join(0)
-	fmt.Printf("line 106\n")
+	// fmt.Printf("line 106\n")
 	n := 10
 	ka := make([]string, n)
 	va := make([]string, n)
@@ -111,14 +111,14 @@ func TestJoinLeave(t *testing.T) {
 		va[i] = randstring(5)
 		ck.Put(ka[i], va[i])
 	}
-	fmt.Printf("line 114\n")
+	// fmt.Printf("line 114\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
-	fmt.Printf("line 118\n")
+	// fmt.Printf("line 118\n")
 
 	cfg.join(1)
-	fmt.Printf("line 121\n")
+	// fmt.Printf("line 121\n")
 
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
@@ -126,9 +126,9 @@ func TestJoinLeave(t *testing.T) {
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-	fmt.Printf("line 129\n")
+	// fmt.Printf("line 129\n")
 	cfg.leave(0)
-	fmt.Printf("line 131\n")
+	// fmt.Printf("line 131\n")
 
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
@@ -136,17 +136,17 @@ func TestJoinLeave(t *testing.T) {
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-	fmt.Printf("line 139\n")
+	// fmt.Printf("line 139\n")
 	// allow time for shards to transfer.
 	time.Sleep(1 * time.Second)
 
 	cfg.checklogs()
 	cfg.ShutdownGroup(0)
-	fmt.Printf("line 145\n")
+	// fmt.Printf("line 145\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
-	fmt.Printf("line 149\n")
+	// fmt.Printf("line 149\n")
 	fmt.Printf("  ... Passed\n")
 }
 
@@ -227,7 +227,7 @@ func TestMissChange(t *testing.T) {
 	ck := cfg.makeClient()
 
 	cfg.join(0)
-	fmt.Printf("line 230\n")
+	// fmt.Printf("line 230\n")
 	n := 10
 	ka := make([]string, n)
 	va := make([]string, n)
@@ -236,72 +236,72 @@ func TestMissChange(t *testing.T) {
 		va[i] = randstring(20)
 		ck.Put(ka[i], va[i])
 	}
-	fmt.Printf("line 239\n")
+	// fmt.Printf("line 239\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
-	fmt.Printf("line 243\n")
+	// fmt.Printf("line 243\n")
 	cfg.join(1)
-	fmt.Printf("line 245\n")
+	// fmt.Printf("line 245\n")
 	cfg.ShutdownServer(0, 0)
 	cfg.ShutdownServer(1, 0)
 	cfg.ShutdownServer(2, 0)
-	fmt.Printf("line 249\n")
+	// fmt.Printf("line 249\n")
 	cfg.join(2)
 	cfg.leave(1)
 	cfg.leave(0)
-	fmt.Printf("line 253\n")
+	// fmt.Printf("line 253\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 		x := randstring(20)
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-	fmt.Printf("line 260\n")
+	// fmt.Printf("line 260\n")
 	cfg.join(1)
-	fmt.Printf("line 262\n")
+	// fmt.Printf("line 262\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 		x := randstring(20)
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-	fmt.Printf("line 269\n")
+	// fmt.Printf("line 269\n")
 	cfg.StartServer(0, 0)
 	cfg.StartServer(1, 0)
 	cfg.StartServer(2, 0)
-	fmt.Printf("line 273\n")
+	// fmt.Printf("line 273\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 		x := randstring(20)
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-	fmt.Printf("line 280\n")
+	// fmt.Printf("line 280\n")
 	time.Sleep(2 * time.Second)
-	fmt.Printf("line 282\n")
+	// fmt.Printf("line 282\n")
 	cfg.ShutdownServer(0, 1)
 	cfg.ShutdownServer(1, 1)
 	cfg.ShutdownServer(2, 1)
-	fmt.Printf("line 286\n")
+	// fmt.Printf("line 286\n")
 	cfg.join(0)
 	cfg.leave(2)
-	fmt.Printf("line 289\n")
+	// fmt.Printf("line 289\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 		x := randstring(20)
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-	fmt.Printf("line 296\n")
+	// fmt.Printf("line 296\n")
 	cfg.StartServer(0, 1)
 	cfg.StartServer(1, 1)
 	cfg.StartServer(2, 1)
-	fmt.Printf("line 300\n")
+	// fmt.Printf("line 300\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
-	fmt.Printf("line 304\n")
+	// fmt.Printf("line 304\n")
 	fmt.Printf("  ... Passed\n")
 }
 
@@ -464,7 +464,7 @@ func TestConcurrent3(t *testing.T) {
 	ck := cfg.makeClient()
 
 	cfg.join(0)
-	fmt.Printf("line 467\n")
+	// fmt.Printf("line 467\n")
 	n := 10
 	ka := make([]string, n)
 	va := make([]string, n)
@@ -473,7 +473,7 @@ func TestConcurrent3(t *testing.T) {
 		va[i] = randstring(1)
 		ck.Put(ka[i], va[i])
 	}
-	fmt.Printf("line 476\n")
+	// fmt.Printf("line 476\n")
 	var done int32
 	ch := make(chan bool)
 
@@ -513,15 +513,15 @@ func TestConcurrent3(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	atomic.StoreInt32(&done, 1)
-	fmt.Printf("line 515\n")
+	// fmt.Printf("line 515\n")
 	for i := 0; i < n; i++ {
 		<-ch
 	}
-	fmt.Printf("line 519\n")
+	// fmt.Printf("line 519\n")
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
 	}
-	fmt.Printf("line 523\n")
+	// fmt.Printf("line 523\n")
 	fmt.Printf("  ... Passed\n")
 }
 
@@ -534,7 +534,7 @@ func TestUnreliable1(t *testing.T) {
 	ck := cfg.makeClient()
 
 	cfg.join(0)
-	fmt.Printf("line 536\n")
+	// fmt.Printf("line 536\n")
 	n := 10
 	ka := make([]string, n)
 	va := make([]string, n)
@@ -543,11 +543,11 @@ func TestUnreliable1(t *testing.T) {
 		va[i] = randstring(5)
 		ck.Put(ka[i], va[i])
 	}
-	fmt.Printf("line 545\n")
+	// fmt.Printf("line 545\n")
 	cfg.join(1)
 	cfg.join(2)
 	cfg.leave(0)
-	fmt.Printf("line 549\n")
+	// fmt.Printf("line 549\n")
 	for ii := 0; ii < n*2; ii++ {
 		i := ii % n
 		check(t, ck, ka[i], va[i])
@@ -555,15 +555,15 @@ func TestUnreliable1(t *testing.T) {
 		ck.Append(ka[i], x)
 		va[i] += x
 	}
-	fmt.Printf("line 557\n")
+	// fmt.Printf("line 557\n")
 	cfg.join(0)
 	cfg.leave(1)
-	fmt.Printf("line 560\n")
+	// fmt.Printf("line 560\n")
 	for ii := 0; ii < n*2; ii++ {
 		i := ii % n
 		check(t, ck, ka[i], va[i])
 	}
-	fmt.Printf("line 565\n")
+	// fmt.Printf("line 565\n")
 	fmt.Printf("  ... Passed\n")
 }
 
@@ -643,7 +643,7 @@ func TestUnreliable3(t *testing.T) {
 	ck := cfg.makeClient()
 
 	cfg.join(0)
-	fmt.Printf("line 645\n")
+	// fmt.Printf("line 645\n")
 	n := 10
 	ka := make([]string, n)
 	va := make([]string, n)
@@ -658,7 +658,7 @@ func TestUnreliable3(t *testing.T) {
 		op := porcupine.Operation{Input: inp, Call: start, Output: out, Return: end, ClientId: 0}
 		operations = append(operations, op)
 	}
-	fmt.Printf("line 660\n")
+	// fmt.Printf("line 660\n")
 	var done int32
 	ch := make(chan bool)
 
@@ -689,7 +689,7 @@ func TestUnreliable3(t *testing.T) {
 			opMu.Unlock()
 		}
 	}
-	fmt.Printf("line 691\n")
+	// fmt.Printf("line 691\n")
 	for i := 0; i < n; i++ {
 		go ff(i)
 	}
@@ -705,15 +705,15 @@ func TestUnreliable3(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	cfg.join(1)
 	cfg.join(0)
-	fmt.Printf("line 707\n")
+	// fmt.Printf("line 707\n")
 	time.Sleep(2 * time.Second)
-	fmt.Printf("line 709\n")
+	// fmt.Printf("line 709\n")
 	atomic.StoreInt32(&done, 1)
 	cfg.net.Reliable(true)
 	for i := 0; i < n; i++ {
 		<-ch
 	}
-	fmt.Printf("line 716\n")
+	// fmt.Printf("line 716\n")
 
 	res, info := porcupine.CheckOperationsVerbose(models.KvModel, operations, linearizabilityCheckTimeout)
 	if res == porcupine.Illegal {
