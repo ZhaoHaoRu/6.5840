@@ -37,7 +37,6 @@
 
 - 日志的 snapshot 不仅需要包含状态机的状态，还需要包含用来去重的 `sessionMap`哈希表。
 - 读请求直接生成一条 raft 日志去同步，这样可以以最简单的方式保证线性一致性（raft论文中描述得比较复杂）
-
 - 对于`sessionMap`，不仅作为leader的`KVServer`要更新，作为client的也要更新
 - 对于clerk发送的sequence number已经过期的request，clerk收到`OutOfDateErr`的回复之后，应该立刻返回而不是重试
 - 如果出现两个相同index的entry共用一个reply channel，说明前一个entry已经失效，需要发送`OutOfDateErr`然后新创建一个channel
@@ -45,9 +44,7 @@
 ### Project4
 
 - system arch：
-
   ![img](https://gitee.com/zhaohaoru/pic-bed/raw/master/assets/v2-94638b6f44e64804e921354b1965d528_r.jpg)
-
 - 在实现的时候参考了以下一些很不错的reference：
   - [OneSizeFitsQuorum/MIT6.824-2021: 4 labs + 2 challenges + 4 docs (github.com)](https://github.com/OneSizeFitsQuorum/MIT6.824-2021)
   - [mit-6.824 2021 Lab4：ShardKV - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/464097239)
